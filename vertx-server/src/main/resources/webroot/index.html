@@ -734,9 +734,14 @@
                 });
                 const data = await res.json();
 
-                if (data.success && data.data && data.data.token) {
-                    authToken = data.data.token;
+                const token = data.data && (data.data.access_token || data.data.token);
+
+                if (data.success && token) {
+                    authToken = token;
                     localStorage.setItem('ipam_token', authToken);
+                    if (data.data.user && data.data.user.username) {
+                        document.getElementById('userGreeting').innerText = `👤 ${data.data.user.username} (${data.data.user.roleName || 'ROLE_ADMIN'})`;
+                    }
                     showToast('Login successful! Welcome back.', 'success');
                     showDashboard();
                 } else {

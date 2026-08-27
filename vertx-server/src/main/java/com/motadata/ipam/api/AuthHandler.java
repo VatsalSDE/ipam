@@ -373,6 +373,8 @@ public class AuthHandler {
 
         data.put("access_token", accessToken);
 
+        data.put("token", accessToken);
+
         data.put("refresh_token", refreshToken);
 
         data.put("token_type", "Bearer");
