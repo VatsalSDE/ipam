@@ -146,6 +146,16 @@
                     </execution>
                 </executions>
             </plugin>
+
+            <!-- Exec Maven Plugin for 'mvn exec:java' -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.1</version>
+                <configuration>
+                    <mainClass>com.motadata.ipam.MainVerticle</mainClass>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

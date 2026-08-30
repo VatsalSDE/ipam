@@ -28,11 +28,6 @@ public class AuthRouter {
 
         router.get("/api/auth/me").handler(rbacAuthHandler::authenticate).handler(authHandler::me);
 
-        // Backward compatibility routes for legacy frontend
-        router.post("/login").handler(authHandler::login);
-
-        router.get("/logout").handler(authHandler::logout);
-
     }
 
 }

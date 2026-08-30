@@ -2,6 +2,8 @@ package com.motadata.ipam.util;
 
 import java.util.ArrayList;
 
+import java.util.Collections;
+
 import java.util.List;
 
 import java.util.regex.Pattern;
@@ -202,6 +204,32 @@ public final class IPv4Util {
         }
 
         return chunks;
+
+    }
+
+    /**
+     * Generates a single bounded batch of IP strings for the given numerical range [startIp, endIp].
+     * Avoids holding multi-chunk collections in heap memory, keeping memory flat at O(1).
+     */
+    public static List<String> generateIpRange(long startIp, long endIp) {
+
+        if (startIp > endIp) {
+
+            return Collections.emptyList();
+
+        }
+
+        int count = (int) (endIp - startIp + 1);
+
+        List<String> list = new ArrayList<>(count);
+
+        for (long ip = startIp; ip <= endIp; ip++) {
+
+            list.add(longToIp(ip));
+
+        }
+
+        return list;
 
     }
 

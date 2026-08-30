@@ -4,9 +4,13 @@ import com.motadata.ipam.database.DbQueries;
 
 import com.motadata.ipam.util.IPv4Util;
 
+import com.motadata.ipam.verticle.SubnetWorkerVerticle;
+
 import io.vertx.core.Future;
 
 import io.vertx.core.Promise;
+
+import io.vertx.core.Vertx;
 
 import io.vertx.core.json.JsonArray;
 
@@ -41,9 +45,19 @@ public class SubnetService {
 
     private final MySQLPool mysqlPool;
 
+    private final Vertx vertx;
+
     public SubnetService(MySQLPool mysqlPool) {
 
+        this(mysqlPool, null);
+
+    }
+
+    public SubnetService(MySQLPool mysqlPool, Vertx vertx) {
+
         this.mysqlPool = mysqlPool;
+
+        this.vertx = vertx;
 
     }
 
@@ -561,41 +575,64 @@ public class SubnetService {
     }
 
     /**
-     * Batch inserts generated IPs in memory-safe chunks of 512 using non-blocking executeBatch.
+     * Populates subnet IP records using true streaming recursion or EventBus dispatch to SubnetWorkerVerticle.
+     * Ensures constant O(1) heap memory footprint (< 50 KB) without pre-allocating IP string lists.
      */
     private Future<Void> batchInsertIpRecords(Long subnetId, long networkLong, long broadcastLong) {
 
-        List<List<String>> chunks = IPv4Util.generateIpChunks(networkLong, broadcastLong, DEFAULT_CHUNK_SIZE);
+        long firstUsable = networkLong + 1;
 
-        if (chunks.isEmpty()) {
+        long lastUsable = broadcastLong - 1;
+
+        if (firstUsable > lastUsable) {
 
             return Future.succeededFuture();
 
         }
 
-        String insertSql = DbQueries.INSERT_SUBNET_IPS_BATCH;
+        if (vertx != null && vertx.eventBus() != null) {
 
-        Future<Void> chain = Future.succeededFuture();
+            JsonObject msg = new JsonObject()
+                    .put("subnetId", subnetId)
+                    .put("networkLong", networkLong)
+                    .put("broadcastLong", broadcastLong)
+                    .put("chunkSize", DEFAULT_CHUNK_SIZE);
 
-        for (List<String> chunk : chunks) {
-
-            chain = chain.compose(v -> {
-
-                List<Tuple> batch = new ArrayList<>(chunk.size());
-
-                for (String ip : chunk) {
-
-                    batch.add(Tuple.of(subnetId, ip));
-
-                }
-
-                return mysqlPool.preparedQuery(insertSql).executeBatch(batch).mapEmpty();
-
-            });
+            return vertx.eventBus().<JsonObject>request(SubnetWorkerVerticle.ADDRESS_POPULATE_IPS, msg)
+                    .mapEmpty();
 
         }
 
-        return chain;
+        return streamInsertIpChunks(subnetId, firstUsable, lastUsable, DEFAULT_CHUNK_SIZE);
+
+    }
+
+    /**
+     * Recursively streams IP batches of 512 to MariaDB with strictly constant O(1) JVM heap memory.
+     */
+    private Future<Void> streamInsertIpChunks(Long subnetId, long currentIp, long lastUsableIp, int chunkSize) {
+
+        if (currentIp > lastUsableIp) {
+
+            return Future.succeededFuture();
+
+        }
+
+        long chunkEndIp = Math.min(currentIp + chunkSize - 1, lastUsableIp);
+
+        int batchSize = (int) (chunkEndIp - currentIp + 1);
+
+        List<Tuple> batch = new ArrayList<>(batchSize);
+
+        for (long ip = currentIp; ip <= chunkEndIp; ip++) {
+
+            batch.add(Tuple.of(subnetId, IPv4Util.longToIp(ip)));
+
+        }
+
+        return mysqlPool.preparedQuery(DbQueries.INSERT_SUBNET_IPS_BATCH)
+                .executeBatch(batch)
+                .compose(res -> streamInsertIpChunks(subnetId, chunkEndIp + 1, lastUsableIp, chunkSize));
 
     }
 

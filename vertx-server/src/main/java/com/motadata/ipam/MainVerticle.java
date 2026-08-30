@@ -12,6 +12,10 @@ import com.motadata.ipam.security.JwtTokenService;
 
 import com.motadata.ipam.security.RbacAuthHandler;
 
+import com.motadata.ipam.verticle.ScanWorkerVerticle;
+
+import com.motadata.ipam.verticle.SubnetWorkerVerticle;
+
 import io.vertx.core.AbstractVerticle;
 
 import io.vertx.core.DeploymentOptions;
@@ -54,48 +58,91 @@ public class MainVerticle extends AbstractVerticle {
 
         logger.info("Initializing Vert.x IPAM Server instance...");
 
-        // 1. Initialize Reactive Database Pool
-        mysqlPool = DatabasePool.getPool(vertx);
+        // 1. Initialize Database & Native Plugin Bridge
+        this.mysqlPool = DatabasePool.getPool(vertx);
 
-        // 2. Initialize Go Plugin Worker Bridge
-        goPluginBridge = new GoPluginBridge(vertx);
+        this.goPluginBridge = new GoPluginBridge(vertx);
 
-        // 3. Initialize Security & Token Services
-        com.motadata.ipam.security.JwtTokenService jwtTokenService = new com.motadata.ipam.security.JwtTokenService(vertx);
+        // 2. Initialize Security & Token Services
+        JwtTokenService jwtTokenService = new JwtTokenService(vertx);
 
-        com.motadata.ipam.security.RbacAuthHandler rbacAuthHandler = new com.motadata.ipam.security.RbacAuthHandler(jwtTokenService);
+        RbacAuthHandler rbacAuthHandler = new RbacAuthHandler(jwtTokenService);
 
-        // 4. Create and Configure Web Router using Modular AppRouter
-        Router router = com.motadata.ipam.router.AppRouter.create(vertx, mysqlPool, goPluginBridge, jwtTokenService, rbacAuthHandler);
+        // 3. Assemble Web Router (Auth, Subnet, Health endpoints)
+        Router router = AppRouter.create(vertx, mysqlPool, goPluginBridge, jwtTokenService, rbacAuthHandler);
 
-        // 5. Deploy Dedicated ScanWorkerVerticle on a Worker Pool
-        DeploymentOptions workerOpts = new DeploymentOptions()
+        // 4. Deploy Dedicated Background Worker Verticles (Singleton across all instances)
+        boolean isFirstInstance = vertx.sharedData().getLocalMap("ipam.system").putIfAbsent("workers.deployed", Boolean.TRUE) == null;
+
+        if (isFirstInstance) {
+
+            deployWorkerVerticles();
+
+        }
+
+        // 5. Start HTTP Server
+        startHttpServer(router, config, startPromise);
+
+    }
+
+    /**
+     * Deploys heavy background tasks (scanners, schedulers, IP populator) to dedicated worker thread pools.
+     * Guaranteed to be deployed once as singletons across all MainVerticle instances.
+     */
+    private void deployWorkerVerticles() {
+
+        DeploymentOptions scannerOpts = new DeploymentOptions()
                 .setWorker(true)
                 .setWorkerPoolName("subnet-scanner-worker-pool")
                 .setWorkerPoolSize(5);
 
-        vertx.deployVerticle(new com.motadata.ipam.verticle.ScanWorkerVerticle(mysqlPool, goPluginBridge), workerOpts)
+        vertx.deployVerticle(new ScanWorkerVerticle(mysqlPool, goPluginBridge), scannerOpts)
                 .onSuccess(id -> logger.info("ScanWorkerVerticle deployed successfully on worker pool (ID: {})", id))
                 .onFailure(err -> logger.error("Failed to deploy ScanWorkerVerticle: {}", err.getMessage()));
 
-        // 6. Start HTTP Server using modern Vert.x Future API
+        DeploymentOptions subnetOpts = new DeploymentOptions()
+                .setWorker(true)
+                .setWorkerPoolName("subnet-ops-worker-pool")
+                .setWorkerPoolSize(5);
+
+        vertx.deployVerticle(new SubnetWorkerVerticle(mysqlPool), subnetOpts)
+                .onSuccess(id -> logger.info("SubnetWorkerVerticle deployed successfully on worker pool (ID: {})", id))
+                .onFailure(err -> logger.error("Failed to deploy SubnetWorkerVerticle: {}", err.getMessage()));
+
+    }
+
+    /**
+     * Starts the non-blocking HTTP server listening on the configured host and port.
+     */
+    private void startHttpServer(Router router, AppConfig config, Promise<Void> startPromise) {
+
         int port = config.getServerPort();
+
+        String host = config.getServerHost();
 
         HttpServer server = vertx.createHttpServer();
 
         server.requestHandler(router)
-                .listen(port, config.getServerHost())
+                .listen(port, host)
                 .onSuccess(httpServer -> {
 
-                    logger.info("=================================================================");
+                    boolean firstInstance = vertx.sharedData()
+                            .getLocalMap("ipam.system")
+                            .putIfAbsent("banner.printed", Boolean.TRUE) == null;
 
-                    logger.info(" Motadata IPAM Vert.x Server started successfully!");
+                    if (firstInstance) {
 
-                    logger.info(" Listening on http://{}:{}", config.getServerHost(), port);
+                        logger.info("=================================================================");
 
-                    logger.info(" Health Check: http://localhost:{}/health", port);
+                        logger.info(" Motadata IPAM Vert.x Server started successfully!");
 
-                    logger.info("=================================================================");
+                        logger.info(" Listening on http://{}:{}", host, port);
+
+                        logger.info(" Health Check: http://localhost:{}/health", port);
+
+                        logger.info("=================================================================");
+
+                    }
 
                     startPromise.complete();
 

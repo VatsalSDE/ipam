@@ -27,7 +27,7 @@ public class SubnetRouter {
 
     public static void register(Router router, MySQLPool mysqlPool, GoPluginBridge goPluginBridge, Vertx vertx, RbacAuthHandler rbacAuthHandler) {
 
-        SubnetService subnetService = new SubnetService(mysqlPool);
+        SubnetService subnetService = new SubnetService(mysqlPool, vertx);
 
         SubnetHandler subnetHandler = new SubnetHandler(subnetService);
 
@@ -72,19 +72,6 @@ public class SubnetRouter {
         router.get("/api/subnet/:id/scan-status")
                 .handler(rbacAuthHandler.requirePermission("PERM_SUBNET_VIEW"))
                 .handler(scannerHandler::getScanStatus);
-
-        // Legacy compatibility aliases
-        router.get("/api/subnet/")
-                .handler(rbacAuthHandler.requirePermission("PERM_SUBNET_VIEW"))
-                .handler(subnetHandler::list);
-
-        router.post("/api/subnet/")
-                .handler(rbacAuthHandler.requirePermission("PERM_SUBNET_EDIT"))
-                .handler(subnetHandler::create);
-
-        router.get("/api/subnet/scan/:id")
-                .handler(rbacAuthHandler.requirePermission("PERM_DISCOVERY_WRITE"))
-                .handler(scannerHandler::triggerScan);
 
     }
 

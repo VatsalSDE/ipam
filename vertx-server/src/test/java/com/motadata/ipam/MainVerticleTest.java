@@ -65,4 +65,37 @@ public class MainVerticleTest {
 
     }
 
+    @Test
+    void testStaticWebrootPages(Vertx vertx, VertxTestContext testContext) {
+
+        HttpClient client = vertx.createHttpClient();
+
+        client.request(HttpMethod.GET, 8888, "localhost", "/login.html")
+                .compose(req -> req.send().compose(resp -> {
+
+                    assertEquals(200, resp.statusCode());
+
+                    return client.request(HttpMethod.GET, 8888, "localhost", "/home.html");
+
+                }))
+                .compose(req -> req.send().compose(resp -> {
+
+                    assertEquals(200, resp.statusCode());
+
+                    return client.request(HttpMethod.GET, 8888, "localhost", "/");
+
+                }))
+                .compose(req -> req.send().compose(resp -> {
+
+                    assertEquals(200, resp.statusCode());
+
+                    testContext.completeNow();
+
+                    return io.vertx.core.Future.succeededFuture();
+
+                }))
+                .onFailure(testContext::failNow);
+
+    }
+
 }

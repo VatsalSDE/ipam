@@ -147,4 +147,23 @@ class IPv4UtilTest {
 
     }
 
+    @Test
+    void testGenerateIpRange() {
+
+        long start = IPv4Util.ipToLong("10.0.0.1");
+
+        long end = IPv4Util.ipToLong("10.0.0.5");
+
+        List<String> range = IPv4Util.generateIpRange(start, end);
+
+        assertEquals(5, range.size());
+
+        assertEquals("10.0.0.1", range.get(0));
+
+        assertEquals("10.0.0.5", range.get(4));
+
+        assertTrue(IPv4Util.generateIpRange(end, start).isEmpty());
+
+    }
+
 }

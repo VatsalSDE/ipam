@@ -2,6 +2,8 @@ package com.motadata.ipam.router;
 
 import com.motadata.ipam.model.ApiResponse;
 
+import com.motadata.ipam.plugin.GoPluginBridge;
+
 import com.motadata.ipam.security.JwtTokenService;
 
 import com.motadata.ipam.security.RbacAuthHandler;
@@ -26,7 +28,7 @@ import io.vertx.mysqlclient.MySQLPool;
  */
 public class AppRouter {
 
-    public static Router create(Vertx vertx, MySQLPool mysqlPool, com.motadata.ipam.plugin.GoPluginBridge goPluginBridge, JwtTokenService jwtTokenService, RbacAuthHandler rbacAuthHandler) {
+    public static Router create(Vertx vertx, MySQLPool mysqlPool, GoPluginBridge goPluginBridge, JwtTokenService jwtTokenService, RbacAuthHandler rbacAuthHandler) {
 
         Router router = Router.router(vertx);
 
@@ -53,12 +55,6 @@ public class AppRouter {
         router.route("/*").handler(StaticHandler.create("webroot").setCachingEnabled(false).setIndexPage("index.html"));
 
         return router;
-
-    }
-
-    public static Router create(Vertx vertx, MySQLPool mysqlPool, JwtTokenService jwtTokenService, RbacAuthHandler rbacAuthHandler) {
-
-        return create(vertx, mysqlPool, new com.motadata.ipam.plugin.GoPluginBridge(vertx), jwtTokenService, rbacAuthHandler);
 
     }
 
