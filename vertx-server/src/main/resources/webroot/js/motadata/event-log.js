@@ -31,34 +31,40 @@ var eventLog = {
 
         var reportDropDown = $("#eventTimeLine");
 
-        var data = [{text: "All", value: "10" },{text: "Today", value: "1" },{text: "Previous Day", value: "2" },{text: "This Week", value: "3" },{text: "This Month", value: "4" },{text: "This Quarter", value: "5" },{text: "Previous Quarter", value: "6" },
-            {text: "Last Six Month", value: "7" },{text: "This Year", value: "8" },{text: "Previous Year", value: "9" },{text: "Previous Week", value: "11" },{text: "Previous Month", value: "12" }];
+        var data = [
+            { text: "All", value: "10" },
+            { text: "Today", value: "1" },
+            { text: "Previous Day", value: "2" },
+            { text: "This Week", value: "3" },
+            { text: "This Month", value: "4" },
+            { text: "This Quarter", value: "5" },
+            { text: "Previous Quarter", value: "6" },
+            { text: "Last Six Month", value: "7" },
+            { text: "This Year", value: "8" },
+            { text: "Previous Year", value: "9" },
+            { text: "Previous Week", value: "11" },
+            { text: "Previous Month", value: "12" }
+        ];
 
-        flux.getKendoDropDownList({dropDownId:reportDropDown,dataTextField: "text",dataValueField: "value",data:data});
-
-        var param = {};
-
-        reportDropDown.data('kendoDropDownList').destroy();
-
-        reportDropDown.kendoDropDownList
-        ({
-            change:function (e)
-            {
-                e.preventDefault();
-
-                param['exportTimeline'] = this.value();
-
-                eventLog.renderEventLogGrid(param);
+        reportDropDown.kendoDropDownList({
+            dataTextField: "text",
+            dataValueField: "value",
+            dataSource: data,
+            value: "10",
+            change: function (e) {
+                if (e) {
+                    e.preventDefault();
+                }
+                var val = this.value();
+                eventLog.renderEventLogGrid({ exportTimeline: val });
             }
         });
 
-        reportDropDown.getKendoDropDownList().trigger('change');
+        eventLog.renderEventLogGrid({ exportTimeline: "10" });
 
-        reportDropDown.data('kendoDropDownList').refresh();
+        flux.bindKendoButtonClickEvent({ element: 'exportEventPdf', export: 1 }, eventLog.onExportButtonClick);
 
-        flux.bindKendoButtonClickEvent({element:'exportEventPdf',export:1},eventLog.onExportButtonClick);
-
-        flux.bindKendoButtonClickEvent({element:'exportEventCsv',export:2},eventLog.onExportButtonClick);
+        flux.bindKendoButtonClickEvent({ element: 'exportEventCsv', export: 2 }, eventLog.onExportButtonClick);
     },
 
     // ----------------------------------------------------------------------Load Eventlog grid on selected timeline----------------------------------------------------------------------------------------------------//
@@ -94,12 +100,12 @@ var eventLog = {
                 }
             },
             Fields: [
-                {field: "eventType", title: "Event Type",width:"15%",template:'# if (eventType) { # <span title="#:eventType#">#: eventType # </span># } else { #<span></span># } #'},
-                {field: "eventContext", title: "Event Context",width:"53%",template:'# if (eventContext) { # <span title="#:eventContext#">#: eventContext # </span># } else { #<span></span># } #'},
-                {field: "timestamp", title: "Time",width:"17%",template:'# if (timestamp) { # <span title="#:timestamp#">#: timestamp # </span># } else { #<span></span># } #'},
+                {field: "eventType", title: "Event Type",width:"15%",template:'# if (typeof eventType !== "undefined" && eventType) { # <span title="#:eventType#">#: eventType # </span># } else { #<span></span># } #'},
+                {field: "eventContext", title: "Event Context",width:"53%",template:'# if (typeof eventContext !== "undefined" && eventContext) { # <span title="#:eventContext#">#: eventContext # </span># } else { #<span></span># } #'},
+                {field: "timestamp", title: "Time",width:"17%",template:'# if (typeof timestamp !== "undefined" && timestamp) { # <span title="#:timestamp#">#: timestamp # </span># } else { #<span></span># } #'},
                 {
                     field: "userName",
-                    template: "#if(doneBy==null){#<span></span>#}else{#<span title='#: doneBy.userName #'>#: doneBy.userName #</span>#}#",
+                    template: "# if (typeof doneBy !== 'undefined' && doneBy && doneBy.userName) { # <span title='#: doneBy.userName #'>#: doneBy.userName #</span> # } else if (typeof userName !== 'undefined' && userName) { # <span title='#: userName #'>#: userName #</span> # } else { # <span>admin</span> # } #",
                     title: "Username",
                     width:"15%"
                 }
@@ -110,7 +116,9 @@ var eventLog = {
 
         // Destroy old grid context
         try {
-            gridId.data().kendoGrid.destroy();
+            if (gridId.data() && gridId.data().kendoGrid) {
+                gridId.data().kendoGrid.destroy();
+            }
             gridId.empty();
         }
         catch(err)
@@ -126,15 +134,35 @@ var eventLog = {
 
     renderEventLogGridData : function (context)
     {
-        if(context.json.data != null && context.json.success == true)
+        if (context && context.json && context.json.data != null && context.json.success === true)
         {
             var result = context.json.data;
 
-            context.container.success(result);
+            if (result && !Array.isArray(result) && Array.isArray(result.events)) {
+                result = result.events;
+            }
+
+            if (Array.isArray(result) && result.length > 0) {
+                for (var i = 0; i < result.length; i++) {
+                    if (!result[i].doneBy) {
+                        result[i].doneBy = { userName: result[i].userName || "admin" };
+                    }
+                }
+                if (context.container && context.container.success) {
+                    context.container.success(result);
+                }
+            } else {
+                if (context.container && context.container.success) {
+                    context.container.success([]);
+                }
+                $(".k-grid-content").html(appConstant.NoDataSpan);
+            }
         }
         else
         {
-            context.container.success("");
+            if (context && context.container && context.container.success) {
+                context.container.success([]);
+            }
 
             $(".k-grid-content").html(appConstant.NoDataSpan);
         }

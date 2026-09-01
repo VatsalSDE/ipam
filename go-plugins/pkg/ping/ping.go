@@ -19,8 +19,6 @@ import (
 
 	"strings"
 
-	"sync"
-
 	"time"
 )
 
@@ -57,6 +55,8 @@ func Run(args []string) {
 
 		firstArg := strings.TrimSpace(args[0])
 
+//         If Java passed a filename (e.g. cache.json)
+
 		if strings.HasSuffix(firstArg, ".txt") || strings.HasSuffix(firstArg, ".json") {
 
 			inputData, err = os.ReadFile(firstArg)
@@ -70,6 +70,7 @@ func Run(args []string) {
 			}
 
 		} else {
+            // If Java passed the JSON string directly as an argument
 
 			inputData = []byte(firstArg)
 
@@ -81,6 +82,7 @@ func Run(args []string) {
 
 		if statErr == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
 
+            // Fallback: If Java piped JSON via STDIN pipe
 			inputData, err = io.ReadAll(os.Stdin)
 
 		}
@@ -104,6 +106,9 @@ func Run(args []string) {
 // ExecutePing performs concurrent ping against IP addresses
 func ExecutePing(inputData []byte) PingResult {
 
+    // 1. Parse JSON options
+
+    // 2. Extract comma-separated IPs into slice []string
 	var rawMap map[string]interface{}
 
 	if err := json.Unmarshal(inputData, &rawMap); err != nil {
@@ -115,8 +120,6 @@ func ExecutePing(inputData []byte) PingResult {
 	retryCount := 2
 
 	timeoutMs := 1000
-
-	maxConcurrent := 500
 
 	var ips []string
 
@@ -134,13 +137,13 @@ func ExecutePing(inputData []byte) PingResult {
 
 	if val, ok := rawMap["max-concurrent-ping"]; ok {
 
-		maxConcurrent = parseInt(val, 500)
+		_ = parseInt(val, 500)
 
 	}
 
 	if val, ok := rawMap["ip-addresses"]; ok {
 
-		if str, ok := val.(string); ok {
+		if str, ok := val.(string); ok { // this validates that the actually sent is a i mean the string only in ythe input suppsoe the ip ok so yess liek the "192.12.18.1" not lie 123
 
 			for _, ip := range strings.Split(str, ",") {
 
@@ -180,71 +183,61 @@ func ExecutePing(inputData []byte) PingResult {
 
 	}
 
-	if maxConcurrent <= 0 {
+	// High-speed industrial fping execution
+	// -a: print alive only
+	// -q: quiet (suppress headers and per-target verbose logs)
+	// -t: timeout per target in ms
+	// -r: retry count
+	cmd := exec.Command("fping",
+		"-a",
+		"-q",
+		"-t", strconv.Itoa(timeoutMs),
+		"-r", strconv.Itoa(retryCount),
+	)
 
-		maxConcurrent = 50
+	// Stream all chunk IPs into fping's standard input pipe separated by newline
+	cmd.Stdin = strings.NewReader(strings.Join(ips, "\n"))
+
+	// Execute fping.
+	// Note: fping exits with code 1 when some hosts are unreachable.
+	// We read output regardless of exit code.
+	output, _ := cmd.CombinedOutput()
+
+	// Build alive IP fast-lookup set
+	aliveMap := make(map[string]bool)
+
+	lines := strings.Split(string(output), "\n")
+
+	for _, line := range lines {
+
+		trimmed := strings.TrimSpace(line)
+
+		if trimmed != "" {
+
+			aliveMap[trimmed] = true
+
+		}
 
 	}
 
+	// Partition original chunk IPs into up and down lists
 	var upList []string
 
 	var downList []string
 
-	var mu sync.Mutex
-
-	var wg sync.WaitGroup
-
-	ipQueue := make(chan string, len(ips))
-
 	for _, ip := range ips {
 
-		ipQueue <- ip
+		if aliveMap[ip] {
+
+			upList = append(upList, ip)
+
+		} else {
+
+			downList = append(downList, ip)
+
+		}
 
 	}
-
-	close(ipQueue)
-
-	workerCount := maxConcurrent
-
-	if workerCount > len(ips) {
-
-		workerCount = len(ips)
-
-	}
-
-	for i := 0; i < workerCount; i++ {
-
-		wg.Add(1)
-
-		go func() {
-
-			defer wg.Done()
-
-			for ip := range ipQueue {
-
-				isUp := pingSingleHost(ip, retryCount, timeoutMs)
-
-				mu.Lock()
-
-				if isUp {
-
-					upList = append(upList, ip)
-
-				} else {
-
-					downList = append(downList, ip)
-
-				}
-
-				mu.Unlock()
-
-			}
-
-		}()
-
-	}
-
-	wg.Wait()
 
 	if upList == nil {
 

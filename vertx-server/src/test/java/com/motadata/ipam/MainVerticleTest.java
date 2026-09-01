@@ -26,75 +26,69 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 public class MainVerticleTest {
 
     @BeforeEach
-    void deployVerticle(Vertx vertx, VertxTestContext testContext) {
+    void setup() {
+
+        com.motadata.ipam.database.DatabasePool.close();
 
         com.motadata.ipam.config.AppConfig.reset();
 
-        com.motadata.ipam.config.AppConfig.getInstance().setServerPort(8888);
-
-        vertx.deployVerticle(new MainVerticle(), testContext.succeedingThenComplete());
+        com.motadata.ipam.config.AppConfig.getInstance().setServerPort(8899);
 
     }
 
     @Test
-    void testHealthEndpoint(Vertx vertx, VertxTestContext testContext) {
+    void testServerEndpoints(Vertx vertx, VertxTestContext testContext) {
 
-        HttpClient client = vertx.createHttpClient();
+        vertx.deployVerticle(new MainVerticle())
+                .compose(deployId -> {
 
-        client.request(HttpMethod.GET, 8888, "localhost", "/health")
-                .compose(req -> req.send().compose(resp -> {
+                    HttpClient client = vertx.createHttpClient();
 
-                    assertEquals(200, resp.statusCode());
+                    return client.request(HttpMethod.GET, 8899, "localhost", "/health")
+                            .compose(req -> req.send().compose(resp -> {
 
-                    return resp.body();
+                                assertEquals(200, resp.statusCode());
 
-                }))
-                .onComplete(testContext.succeeding(body -> {
+                                return resp.body();
 
-                    JsonObject json = new JsonObject(body.toString());
+                            }))
+                            .compose(body -> {
 
-                    assertEquals(true, json.getBoolean("success"));
+                                JsonObject json = new JsonObject(body.toString());
 
-                    assertNotNull(json.getJsonObject("data"));
+                                assertEquals(true, json.getBoolean("success"));
 
-                    assertEquals("UP", json.getJsonObject("data").getString("status"));
+                                assertNotNull(json.getJsonObject("data"));
 
-                    testContext.completeNow();
+                                assertEquals("UP", json.getJsonObject("data").getString("status"));
 
-                }));
+                                return client.request(HttpMethod.GET, 8899, "localhost", "/login.html");
 
-    }
+                            })
+                            .compose(req -> req.send().compose(resp -> {
 
-    @Test
-    void testStaticWebrootPages(Vertx vertx, VertxTestContext testContext) {
+                                assertEquals(200, resp.statusCode());
 
-        HttpClient client = vertx.createHttpClient();
+                                return client.request(HttpMethod.GET, 8899, "localhost", "/home.html");
 
-        client.request(HttpMethod.GET, 8888, "localhost", "/login.html")
-                .compose(req -> req.send().compose(resp -> {
+                            }))
+                            .compose(req -> req.send().compose(resp -> {
 
-                    assertEquals(200, resp.statusCode());
+                                assertEquals(200, resp.statusCode());
 
-                    return client.request(HttpMethod.GET, 8888, "localhost", "/home.html");
+                                return client.request(HttpMethod.GET, 8899, "localhost", "/");
 
-                }))
-                .compose(req -> req.send().compose(resp -> {
+                            }))
+                            .compose(req -> req.send().compose(resp -> {
 
-                    assertEquals(200, resp.statusCode());
+                                assertEquals(200, resp.statusCode());
 
-                    return client.request(HttpMethod.GET, 8888, "localhost", "/");
+                                return io.vertx.core.Future.succeededFuture();
 
-                }))
-                .compose(req -> req.send().compose(resp -> {
+                            }));
 
-                    assertEquals(200, resp.statusCode());
-
-                    testContext.completeNow();
-
-                    return io.vertx.core.Future.succeededFuture();
-
-                }))
-                .onFailure(testContext::failNow);
+                })
+                .onComplete(testContext.succeedingThenComplete());
 
     }
 

@@ -5,6 +5,7 @@ target/
 *.war
 *.jar
 *.ear
+dependency-reduced-pom.xml
 
 # Logs
 *.log

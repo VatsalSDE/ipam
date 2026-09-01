@@ -37,6 +37,8 @@ public class GoPluginBridge {
 
     private final String binaryPath;
 
+    private static final java.util.concurrent.atomic.AtomicBoolean INITIALIZED_LOGGED = new java.util.concurrent.atomic.AtomicBoolean(false);
+
     public GoPluginBridge(Vertx vertx) {
 
         AppConfig config = AppConfig.getInstance();
@@ -53,7 +55,11 @@ public class GoPluginBridge {
 
         this.binaryPath = bin.getAbsolutePath();
 
-        logger.info("Initialized GoPluginBridge pointing to: {}", this.binaryPath);
+        if (INITIALIZED_LOGGED.compareAndSet(false, true)) {
+
+            logger.info("Initialized GoPluginBridge pointing to: {}", this.binaryPath);
+
+        }
 
     }
 

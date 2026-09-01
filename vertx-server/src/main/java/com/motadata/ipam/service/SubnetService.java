@@ -2,6 +2,8 @@ package com.motadata.ipam.service;
 
 import com.motadata.ipam.database.DbQueries;
 
+import com.motadata.ipam.database.DbUtil;
+
 import com.motadata.ipam.util.IPv4Util;
 
 import com.motadata.ipam.verticle.SubnetWorkerVerticle;
@@ -47,6 +49,8 @@ public class SubnetService {
 
     private final Vertx vertx;
 
+    private final SubnetIpService subnetIpService;
+
     public SubnetService(MySQLPool mysqlPool) {
 
         this(mysqlPool, null);
@@ -59,6 +63,8 @@ public class SubnetService {
 
         this.vertx = vertx;
 
+        this.subnetIpService = new SubnetIpService(mysqlPool);
+
     }
 
     /**
@@ -69,6 +75,10 @@ public class SubnetService {
         if (limit <= 0) {
 
             limit = 50;
+
+        } else if (limit > 500) {
+
+            limit = 500;
 
         }
 
@@ -88,11 +98,9 @@ public class SubnetService {
 
         final int finalOffset = offset;
 
-        Promise<JsonObject> promise = Promise.promise();
-
         Tuple countTuple = hasSearch ? Tuple.of("%" + search.trim() + "%", "%" + search.trim() + "%") : Tuple.tuple();
 
-        mysqlPool.preparedQuery(countSql).execute(countTuple)
+        return mysqlPool.preparedQuery(countSql).execute(countTuple)
                 .compose(countRows -> {
 
                     long totalCount = 0;
@@ -136,11 +144,7 @@ public class SubnetService {
 
                             });
 
-                })
-                .onSuccess(promise::complete)
-                .onFailure(promise::fail);
-
-        return promise.future();
+                });
 
     }
 
@@ -185,11 +189,11 @@ public class SubnetService {
 
                                 for (Row bRow : breakdownRows) {
 
-                                    String status = bRow.getString("status");
+                                    String status = DbUtil.getString(bRow, "status");
 
-                                    Long count = bRow.getLong("count");
+                                    Long count = DbUtil.getLongOrDefault(bRow, "count", 0L);
 
-                                    if (status != null) {
+                                    if (!status.isEmpty()) {
 
                                         statusSummary.put(status.toLowerCase(), count);
 
@@ -355,6 +359,15 @@ public class SubnetService {
 
                                 created.put("location", location);
 
+                                if (vertx != null && vertx.eventBus() != null) {
+
+                                    vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
+                                            .put("eventType", "SUBNET_CREATED")
+                                            .put("eventContext", "Created Subnet '" + subnetName + "' (" + normalizedAddress + "/" + finalCidr + ") with " + totalIp + " IPs")
+                                            .put("severity", 1));
+
+                                }
+
                                 return created;
 
                             });
@@ -364,129 +377,11 @@ public class SubnetService {
     }
 
     /**
-     * Fetches paginated IP address rows for a specific subnet.
+     * Fetches paginated IP address rows for a specific subnet by delegating to SubnetIpService.
      */
     public Future<JsonObject> getSubnetIps(Long subnetId, int limit, int offset, String statusFilter, String search) {
 
-        if (subnetId == null || subnetId <= 0) {
-
-            return Future.failedFuture("Invalid subnet ID");
-
-        }
-
-        if (limit <= 0) {
-
-            limit = 50;
-
-        }
-
-        if (offset < 0) {
-
-            offset = 0;
-
-        }
-
-        StringBuilder countSql = new StringBuilder(DbQueries.COUNT_SUBNET_IPS_BASE);
-
-        StringBuilder selectSql = new StringBuilder(DbQueries.SELECT_SUBNET_IPS_BASE);
-
-        List<Object> params = new ArrayList<>();
-
-        params.add(subnetId);
-
-        if (statusFilter != null && !statusFilter.isBlank()) {
-
-            countSql.append(" AND status = ?");
-
-            selectSql.append(" AND status = ?");
-
-            params.add(statusFilter.trim().toUpperCase());
-
-        }
-
-        if (search != null && !search.isBlank()) {
-
-            countSql.append(" AND (ip_address LIKE ? OR host_name LIKE ? OR mac_address LIKE ?)");
-
-            selectSql.append(" AND (ip_address LIKE ? OR host_name LIKE ? OR mac_address LIKE ?)");
-
-            String wildcard = "%" + search.trim() + "%";
-
-            params.add(wildcard);
-
-            params.add(wildcard);
-
-            params.add(wildcard);
-
-        }
-
-        selectSql.append(" ORDER BY id ASC LIMIT ? OFFSET ?");
-
-        List<Object> selectParams = new ArrayList<>(params);
-
-        selectParams.add(limit);
-
-        selectParams.add(offset);
-
-        final int finalLimit = limit;
-
-        final int finalOffset = offset;
-
-        return mysqlPool.preparedQuery(countSql.toString()).execute(Tuple.from(params))
-                .compose(countRows -> {
-
-                    long total = 0;
-
-                    if (countRows.iterator().hasNext()) {
-
-                        total = countRows.iterator().next().getLong("total");
-
-                    }
-
-                    final long totalRecords = total;
-
-                    return mysqlPool.preparedQuery(selectSql.toString()).execute(Tuple.from(selectParams))
-                            .map(rows -> {
-
-                                JsonArray ips = new JsonArray();
-
-                                for (Row row : rows) {
-
-                                    JsonObject ipObj = new JsonObject();
-
-                                    ipObj.put("id", row.getLong("id"));
-
-                                    ipObj.put("ipAddress", row.getString("ip_address"));
-
-                                    ipObj.put("macAddress", row.getString("mac_address"));
-
-                                    ipObj.put("status", row.getString("status"));
-
-                                    ipObj.put("deviceType", row.getString("device_type"));
-
-                                    ipObj.put("hostName", row.getString("host_name"));
-
-                                    ipObj.put("authenticity", row.getString("authenticity"));
-
-                                    ips.add(ipObj);
-
-                                }
-
-                                JsonObject result = new JsonObject();
-
-                                result.put("total", totalRecords);
-
-                                result.put("limit", finalLimit);
-
-                                result.put("offset", finalOffset);
-
-                                result.put("ips", ips);
-
-                                return result;
-
-                            });
-
-                });
+        return subnetIpService.getSubnetIps(subnetId, limit, offset, statusFilter, search);
 
     }
 
@@ -514,6 +409,15 @@ public class SubnetService {
                     result.put("deleted", true);
 
                     result.put("subnetId", subnetId);
+
+                    if (vertx != null && vertx.eventBus() != null) {
+
+                        vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
+                                .put("eventType", "SUBNET_DELETED")
+                                .put("eventContext", "Deleted Subnet ID " + subnetId + " from network inventory")
+                                .put("severity", 2));
+
+                    }
 
                     return result;
 
@@ -601,6 +505,7 @@ public class SubnetService {
             return vertx.eventBus().<JsonObject>request(SubnetWorkerVerticle.ADDRESS_POPULATE_IPS, msg)
                     .mapEmpty();
 
+
         }
 
         return streamInsertIpChunks(subnetId, firstUsable, lastUsable, DEFAULT_CHUNK_SIZE);
@@ -658,35 +563,29 @@ public class SubnetService {
 
         JsonObject obj = new JsonObject();
 
-        Long id = row.getLong("id");
+        Long id = DbUtil.getLong(row, "id");
 
-        Long totalIp = row.getLong("totalIp");
+        Long totalIp = DbUtil.getLongOrDefault(row, "totalIp", 0L);
 
-        Long usedIp = row.getLong("usedIp");
+        Long usedIp = DbUtil.getLongOrDefault(row, "usedIp", 0L);
 
-        Long availableIp = row.getLong("availableIp");
-
-        if (totalIp == null) totalIp = 0L;
-
-        if (usedIp == null) usedIp = 0L;
-
-        if (availableIp == null) availableIp = 0L;
+        Long availableIp = DbUtil.getLongOrDefault(row, "availableIp", 0L);
 
         double usedPercent = totalIp > 0 ? ((double) usedIp / totalIp) * 100.0 : 0.0;
 
         obj.put("id", id);
 
-        obj.put("subnetName", row.getString("subnetName"));
+        obj.put("subnetName", DbUtil.getString(row, "subnetName"));
 
-        obj.put("subnetAddress", row.getString("subnetAddress"));
+        obj.put("subnetAddress", DbUtil.getString(row, "subnetAddress"));
 
-        obj.put("subnetCidr", row.getInteger("subnetCidr"));
+        obj.put("subnetCidr", DbUtil.getIntOrDefault(row, "subnetCidr", 24));
 
-        obj.put("subnetMask", row.getString("subnetMask"));
+        obj.put("subnetMask", DbUtil.getString(row, "subnetMask"));
 
-        obj.put("description", row.getString("description"));
+        obj.put("description", DbUtil.getString(row, "description"));
 
-        obj.put("location", row.getString("location"));
+        obj.put("location", DbUtil.getString(row, "location"));
 
         obj.put("totalIp", totalIp);
 
@@ -696,9 +595,9 @@ public class SubnetService {
 
         obj.put("usedIpPercentage", Math.round(usedPercent * 100.0) / 100.0);
 
-        obj.put("scheduleStatus", row.getBoolean("scheduleStatus"));
+        obj.put("scheduleStatus", DbUtil.getBoolean(row, "scheduleStatus"));
 
-        obj.put("scheduleHour", row.getInteger("scheduleHour"));
+        obj.put("status", DbUtil.getString(row, "status"));
 
         return obj;
 

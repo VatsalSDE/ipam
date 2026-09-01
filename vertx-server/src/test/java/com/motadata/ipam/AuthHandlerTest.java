@@ -44,6 +44,8 @@ public class AuthHandlerTest {
 
         AppConfig.reset();
 
+        com.motadata.ipam.database.DatabasePool.close();
+
         AppConfig.getInstance().setServerPort(TEST_PORT);
 
         vertx.deployVerticle(new MainVerticle(), testContext.succeedingThenComplete());

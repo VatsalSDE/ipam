@@ -171,7 +171,7 @@ public class SubnetHandler {
 
         long networkLong = IPv4Util.getNetworkAddress(inputIpLong, cidr);
 
-        long broadcastLong = IPv4Util.getBroadcastAddress(networkLong, cidr);
+//        long broadcastLong = IPv4Util.getBroadcastAddress(networkLong, cidr);
 
         String normalizedAddress = IPv4Util.longToIp(networkLong);
 

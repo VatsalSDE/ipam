@@ -168,6 +168,18 @@ public class RbacAuthHandler {
 
     }
 
+    public Handler<RoutingContext> requireAdmin() {
+
+        return requireRole("ROLE_ADMIN");
+
+    }
+
+    public Handler<RoutingContext> authenticateHandler() {
+
+        return this::authenticate;
+
+    }
+
     private void checkPermissionAndProceed(RoutingContext ctx, JsonObject user, String permission) {
 
         Long roleId = user.getLong("roleId");
@@ -185,9 +197,25 @@ public class RbacAuthHandler {
 
         JsonArray permissions = user.getJsonArray("permissions");
 
-        if (permissions != null && (permissions.contains(permission) || permissions.contains("ALL") || permissions.contains("PERM_ALL"))) {
+        String altPermission = permission != null && permission.contains("_") ? permission.replace("_", " ") : (permission != null ? permission.replace(" ", "_") : "");
+
+        boolean hasPerm = permissions != null && (
+                permissions.contains(permission) ||
+                permissions.contains(altPermission) ||
+                permissions.contains("ALL") ||
+                permissions.contains("PERM_ALL") ||
+                ("PERM_SUBNET_VIEW".equalsIgnoreCase(permission) && (permissions.contains("PERM_DASHBOARD_READ") || permissions.contains("PERM_DASHBOARD_VIEW"))) ||
+                ("PERM_SUBNET_READ".equalsIgnoreCase(permission) && (permissions.contains("PERM_DASHBOARD_READ") || permissions.contains("PERM_DASHBOARD_VIEW"))) ||
+                ("PERM_SUBNET_EDIT".equalsIgnoreCase(permission) && (permissions.contains("PERM_DASHBOARD_WRITE") || permissions.contains("PERM_DASHBOARD_EDIT"))) ||
+                ("PERM_SUBNET_DELETE".equalsIgnoreCase(permission) && (permissions.contains("PERM_DASHBOARD_WRITE") || permissions.contains("PERM_DASHBOARD_EDIT"))) ||
+                ("PERM_SUBNET_WRITE".equalsIgnoreCase(permission) && (permissions.contains("PERM_DASHBOARD_WRITE") || permissions.contains("PERM_DASHBOARD_EDIT")))
+        );
+
+        if (hasPerm) {
 
             ctx.next();
+
+            return;
 
         } else {
 

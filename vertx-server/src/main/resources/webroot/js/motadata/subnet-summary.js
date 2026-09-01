@@ -70,9 +70,11 @@ var subnetSummary =
 
                 loaderUtil.showModalLoader();
 
-                var headerPanel = '<div class="dropdown" style="position: relative; display: inline-block;"><button class="primery-btn dropdown-toggle" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="background-color: #007bff; color: white; border: none; padding: 10px 20px; font-size: 14px; cursor: pointer; border-radius: 5px; transition: background 0.3s ease-in-out; white-space: nowrap; display: flex; align-items: center; justify-content: center; width: 100px;">Actions <span class="caret"></span></button>' +
+                var canEdit = (typeof hasRole === 'function') ? (hasRole('PERM_SUBNET_EDIT') || hasRole('ROLE_ADMIN')) : true;
+
+                var headerPanel = canEdit ? ('<div class="dropdown" style="position: relative; display: inline-block;"><button class="primery-btn dropdown-toggle" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="background-color: #007bff; color: white; border: none; padding: 10px 20px; font-size: 14px; cursor: pointer; border-radius: 5px; transition: background 0.3s ease-in-out; white-space: nowrap; display: flex; align-items: center; justify-content: center; width: 100px;">Actions <span class="caret"></span></button>' +
                     '<ul id="actionDropDownMenu" class="dropdown-menu" aria-labelledby="dropdownMenuButton" style="position: absolute; top: 100%; left: auto; right: 0; background: white; border: 1px solid #ccc; border-radius: 5px; list-style: none; padding: 5px; width: 120px; display: none; box-shadow: 0px 4px 6px rgba(0,0,0,0.1);"><li><button id="subnetButton" class="primery-btn" title="Add Subnet" data-panel="addSubnetModal" style="background: none; border: none; width: 100%; text-align: left; padding: 8px; font-size: 14px; cursor: pointer; color: #007bff; outline: none; box-shadow: none; user-select: none;" onmouseover="this.style.color=\'#0056b3\';" onmouseout="this.style.color=\'#007bff\';" onfocus="this.blur();">' +
-                    'Add Subnet</button></li><li><button id="supernetButton" class="primery-btn" title="Add Supernet" data-panel="addSupernetModal" style="background: none; border: none; width: 100%; text-align: left; padding: 8px; font-size: 14px; cursor: pointer; color: #007bff; outline: none; box-shadow: none; user-select: none;" onmouseover="this.style.color=\'#0056b3\';" onmouseout="this.style.color=\'#007bff\';" onfocus="this.blur();">Add Supernet</button></li></ul></div>';
+                    'Add Subnet</button></li><li><button id="supernetButton" class="primery-btn" title="Add Supernet" data-panel="addSupernetModal" style="background: none; border: none; width: 100%; text-align: left; padding: 8px; font-size: 14px; cursor: pointer; color: #007bff; outline: none; box-shadow: none; user-select: none;" onmouseover="this.style.color=\'#0056b3\';" onmouseout="this.style.color=\'#007bff\';" onfocus="this.blur();">Add Supernet</button></li></ul></div>') : '';
 
                 $("#header_panel").html('<div class="title-inner-box"> Hi, '+$("#userName").val()+'</div><div class="breadcrumb-panel"><ul><li><a href="#" data-page="'+breadCrumbMenus+'" data-link=breadCrumbNavigation data-value="'+searchData+'">'+breadCrumbMenuName+'</a></li><li>'+menuName+'</li></ul></div><div class="corner-content">'+ headerPanel +'</div>');
 
@@ -558,17 +560,24 @@ var subnetSummary =
                     subnetSummary.subnetScopeAddress = callbackContext.json.message;
                 }
 
+                var proc = callbackContext.json.processedIps || 0;
+                var tot = callbackContext.json.totalIps || 0;
+                var pct = tot > 0 ? Math.round((proc * 100) / tot) : 0;
+
+                if ($('#discovery-title').length > 0) {
+                    $('#discovery-progress-text').text("Scanning " + subnetSummary.subnetScopeAddress + " (" + proc + "/" + tot + " IPs - " + pct + "%)");
+                    $('#discovery-progress-fill').css("width", Math.max(pct, 5) + "%");
+                }
+
                 if(callbackContext.intervalFunctionCall == undefined)
                 {
-                    //clearInterval(subnetSummary.checkScanStatus);
-
-                    subnetSummary.setRunningDiscoveryBlinkHTML();
+                    subnetSummary.setRunningDiscoveryBlinkHTML(proc, tot, pct);
 
                     subnetSummary.checkScanStatus = setInterval(function()
                     {
                         appManager.executeGETRequest({url:'/statusScanSubnet/',intervalFunctionCall:true,callback:subnetSummary.afterStatusChecked});
 
-                    }, 5000);
+                    }, 2000);
                 }
             }
             else
@@ -586,11 +595,28 @@ var subnetSummary =
             }
         },
 
-        setRunningDiscoveryBlinkHTML:function ()
+        setRunningDiscoveryBlinkHTML:function (proc, tot, pct)
         {
-            //$('#discovery-title').remove();
+            $('#discovery-title').remove();
 
-            $('body').append('<div class="discoveryPositionSection" id="discovery-title"><div class="discoveryMiddle"> <span id ="discovery-progress" class="fa fa-spinner fa-spin discovery-progress txt-color-white" data-original-title="Discovery Progress" rel="tooltip"></span><div class="discovery-title"> <span class="label bg-color-blue discoveryTextSubnet" rel="tooltip" title="Scan is Running for @@@">Scan is Running for @@@</span></div></div></div>'.replace(/@@@/g,subnetSummary.subnetScopeAddress));
+            var currentProc = proc || 0;
+            var currentTot = tot || 0;
+            var currentPct = pct || 0;
+            var text = "Scanning " + (subnetSummary.subnetScopeAddress || "Subnet");
+            if (currentTot > 0) {
+                text += " (" + currentProc + "/" + currentTot + " IPs - " + currentPct + "%)";
+            }
+
+            var bannerHtml = '<div class="discoveryPositionSection" id="discovery-title" style="position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 9999; background: rgba(18, 30, 49, 0.95); padding: 8px 18px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid #3498db; color: #fff; min-width: 320px; text-align: center;">' +
+                '<div class="discoveryMiddle" style="display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;">' +
+                ' <span id="discovery-progress" class="fa fa-spinner fa-spin discovery-progress" style="font-size: 16px; color: #3498db;"></span>' +
+                ' <span id="discovery-progress-text" class="discoveryTextSubnet" style="font-size: 13px; font-weight: 600;">' + text + '</span>' +
+                ' <div style="width: 100%; background: rgba(255,255,255,0.15); border-radius: 6px; height: 6px; margin-top: 4px; overflow: hidden;">' +
+                '  <div id="discovery-progress-fill" style="background: linear-gradient(90deg, #3498db, #2ecc71); height: 100%; width: ' + Math.max(currentPct, 5) + '%; transition: width 0.3s ease-in-out;"></div>' +
+                ' </div>' +
+                '</div></div>';
+
+            $('body').append(bannerHtml);
         },
 
         afterSubnetScanned : function (callbackContexts)
@@ -607,7 +633,7 @@ var subnetSummary =
                 {
                     appManager.executeGETRequest({url:'/statusScanSubnet/',intervalFunctionCall:true,callback:subnetSummary.afterStatusChecked});
 
-                }, 5000);
+                }, 2000);
 
                 notification.showNotification({notificationTitle: callbackContexts.json.message, notificationType:"info"});
             }

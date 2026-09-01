@@ -54,7 +54,7 @@ public class AppConfig {
 
     private int pluginWorkerPoolSize = 20;
 
-    private int verticleInstances = Math.max(1, Runtime.getRuntime().availableProcessors());
+    private int verticleInstances = Math.min(4, Math.max(1, Runtime.getRuntime().availableProcessors()));
 
     private long blockedThreadCheckIntervalMs = 2000;
 
@@ -150,6 +150,12 @@ public class AppConfig {
                     if (data.containsKey("max-ping-check-retry-count")) {
 
                         config.maxPingRetry = Integer.parseInt(data.get("max-ping-check-retry-count").toString());
+
+                    }
+
+                    if (data.containsKey("verticle-instances")) {
+
+                        config.verticleInstances = Integer.parseInt(data.get("verticle-instances").toString());
 
                     }
 

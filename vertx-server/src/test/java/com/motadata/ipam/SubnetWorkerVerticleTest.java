@@ -38,6 +38,8 @@ class SubnetWorkerVerticleTest {
 
         AppConfig.reset();
 
+        DatabasePool.close();
+
         this.mysqlPool = DatabasePool.getPool(vertx);
 
         DeploymentOptions workerOpts = new DeploymentOptions()

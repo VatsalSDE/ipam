@@ -37,6 +37,8 @@ public class JwtTokenService {
 
     private final JWTAuth jwtAuth;
 
+    private static final java.util.concurrent.atomic.AtomicBoolean INITIALIZED_LOGGED = new java.util.concurrent.atomic.AtomicBoolean(false);
+
     public JwtTokenService(Vertx vertx) {
 
         AppConfig config = AppConfig.getInstance();
@@ -48,7 +50,11 @@ public class JwtTokenService {
 
         this.jwtAuth = JWTAuth.create(vertx, authOptions);
 
-        logger.info("Initialized JWTAuth provider with HS256 algorithm");
+        if (INITIALIZED_LOGGED.compareAndSet(false, true)) {
+
+            logger.info("Initialized JWTAuth provider with HS256 algorithm");
+
+        }
 
     }
 

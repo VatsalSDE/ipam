@@ -34,7 +34,7 @@ func main() {
 
 	switch command {
 
-	case "ping":
+	case "ping", "fping":
 
 		ping.Run(args)
 

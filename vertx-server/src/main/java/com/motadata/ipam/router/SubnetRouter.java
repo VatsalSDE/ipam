@@ -69,6 +69,10 @@ public class SubnetRouter {
                 .handler(scannerHandler::triggerScan);
 
         // 8. Get Subnet Scan Status
+        router.get("/api/subnet/scan-status/active")
+                .handler(rbacAuthHandler.requirePermission("PERM_SUBNET_VIEW"))
+                .handler(scannerHandler::getGlobalScanStatus);
+
         router.get("/api/subnet/:id/scan-status")
                 .handler(rbacAuthHandler.requirePermission("PERM_SUBNET_VIEW"))
                 .handler(scannerHandler::getScanStatus);

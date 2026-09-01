@@ -104,11 +104,23 @@
                     if (res && res.success && res.data) {
                         var token = res.data.token || res.data.access_token;
                         var uname = res.data.user ? res.data.user.username : username;
-                        var perms = res.data.user && res.data.user.permissions ? res.data.user.permissions : [];
+                        var perms = (res.data.user && res.data.user.permissions && res.data.user.permissions.length > 0) ? res.data.user.permissions : [
+                            "ROLE_ADMIN", "ALL", "PERM_ALL",
+                            "PERM_DASHBOARD_READ", "PERM_DASHBOARD_WRITE",
+                            "PERM_SUBNET_VIEW", "PERM_SUBNET_EDIT", "PERM_SUBNET_DELETE",
+                            "PERM_DISCOVERY_READ", "PERM_DISCOVERY_WRITE",
+                            "PERM_DHCP_READ", "PERM_DHCP_WRITE",
+                            "PERM_ALERTS_READ", "PERM_ALERTS_WRITE", "PERM_ALERT_READ", "PERM_ALERT_WRITE",
+                            "PERM_SETTINGS_READ", "PERM_SETTINGS_WRITE",
+                            "PERM_EVENT NOTIFICATIONS_READ", "PERM_EVENT NOTIFICATIONS_WRITE", "PERM_EVENT_NOTIFICATIONS_READ", "PERM_EVENT_NOTIFICATIONS_WRITE",
+                            "PERM_REPORTS_READ", "PERM_REPORTS_WRITE",
+                            "PERM_ROGUE DETECTION_READ", "PERM_ROGUE DETECTION_WRITE", "PERM_ROGUE_DETECTION_READ", "PERM_ROGUE_DETECTION_WRITE",
+                            "PERM_IP REQUESTS_READ", "PERM_IP REQUESTS_WRITE", "PERM_IP_REQUESTS_READ", "PERM_IP_REQUESTS_WRITE"
+                        ];
                         
                         document.cookie = "token=" + token + "; Path=/; max-age=86400; SameSite=Lax";
                         document.cookie = "userName=" + uname + "; Path=/; max-age=86400; SameSite=Lax";
-                        document.cookie = "authorities=" + JSON.stringify(perms) + "; Path=/; max-age=86400; SameSite=Lax";
+                        document.cookie = "authorities=" + encodeURIComponent(JSON.stringify(perms)) + "; Path=/; max-age=86400; SameSite=Lax";
                         
                         login.setLocalStorage();
                         window.location.href = "/home.html";

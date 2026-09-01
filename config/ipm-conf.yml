@@ -7,6 +7,9 @@ server-host: localhost
 #tomcat server protocol
 server-protocol: http
 
+#vertx HTTP router instances (default: 2, scale to 4 or 8 under high load)
+verticle-instances: 2
+
 #tomcat server min heap memory
 min-memory : 1024
 

@@ -45,6 +45,8 @@ class SubnetHandlerTest {
 
         AppConfig.reset();
 
+        com.motadata.ipam.database.DatabasePool.close();
+
         AppConfig.getInstance().setServerPort(TEST_PORT);
 
         JwtTokenService tokenService = new JwtTokenService(vertx);

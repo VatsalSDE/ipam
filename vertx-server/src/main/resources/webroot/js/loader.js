@@ -63,5 +63,8 @@ var loaderUtil =
     hideCentralModalLoader: function ()
     {
         $("#MsgBoxBack").hide();
+        $("#MsgBoxBack").remove();
+        $(".divMessageBox").remove();
+        $(".botTempo").remove();
     }
 };

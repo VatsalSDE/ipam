@@ -63,6 +63,8 @@ var topManager =
         {
             event.event.preventDefault();
 
+            navigationManager.addHistory("navigation=home");
+
             homeManager.init();
         }
     },
@@ -99,11 +101,15 @@ var topManager =
 
                 case topManager.menu.Reports:
 
+                    navigationManager.addHistory("navigation=reports");
+
                     report.init();
 
                     break;
 
                 case topManager.menu.EventLog :
+
+                    navigationManager.addHistory("navigation=eventLog");
 
                     eventLog.init();
 
@@ -111,17 +117,23 @@ var topManager =
 
                 case topManager.menu.Alert :
 
+                    navigationManager.addHistory("navigation=alerts");
+
                     alerts.init();
 
                     break;
 
                 case topManager.menu.RogueDetection :
 
+                    navigationManager.addHistory("navigation=rogueDetection");
+
                     rogueDetection.init();
 
                     break;
 
                 case topManager.menu.IpRequests :
+
+                    navigationManager.addHistory("navigation=ipRequests");
 
                     ipRequests.init();
 

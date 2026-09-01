@@ -139,4 +139,28 @@ public class ScannerHandler {
 
     }
 
+    /**
+     * GET /api/subnet/scan-status/active
+     * Returns any actively running scan across the system.
+     */
+    public void getGlobalScanStatus(RoutingContext ctx) {
+
+        if (vertx != null) {
+
+            JsonObject payload = new JsonObject().put("subnetId", 0L);
+
+            vertx.eventBus().<JsonObject>request(ScanWorkerVerticle.ADDRESS_SCAN_STATUS, payload)
+                    .onSuccess(reply -> ApiResponse.sendSuccess(ctx, reply.body()))
+                    .onFailure(err -> ApiResponse.sendError(ctx, 500, "SCAN_STATUS_FAILED", err.getMessage()));
+
+        } else if (scannerService != null) {
+
+            JsonObject status = scannerService.getAnyActiveScan();
+
+            ApiResponse.sendSuccess(ctx, status != null ? status : new JsonObject().put("status", "IDLE"));
+
+        }
+
+    }
+
 }

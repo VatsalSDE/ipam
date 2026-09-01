@@ -8,6 +8,10 @@ import com.motadata.ipam.security.PasswordUtil;
 
 import com.motadata.ipam.database.DbQueries;
 
+import com.motadata.ipam.database.DbUtil;
+
+import com.motadata.ipam.service.EventService;
+
 import io.vertx.core.http.Cookie;
 
 import io.vertx.core.json.JsonObject;
@@ -50,6 +54,7 @@ public class AuthHandler {
         this.jwtTokenService = jwtTokenService;
 
     }
+
 
     public void login(RoutingContext ctx) {
 
@@ -122,19 +127,28 @@ public class AuthHandler {
 
                         logger.warn("Authentication failed: Incorrect password for user '{}'", finalUsername);
 
+                        if (ctx.vertx() != null && ctx.vertx().eventBus() != null) {
+
+                            ctx.vertx().eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
+                                    .put("eventType", "LOGIN_FAILED")
+                                    .put("eventContext", "Failed login attempt for user '" + finalUsername + "' (incorrect password)")
+                                    .put("severity", 2));
+
+                        }
+
                         ApiResponse.sendError(ctx, 401, "BAD_CREDENTIALS", "Invalid username or password");
 
                         return;
 
                     }
 
-                    Long userId = row.getLong("id");
+                    Long userId = DbUtil.getLong(row, "id");
 
-                    String email = row.getString("email");
+                    String email = DbUtil.getString(row, "email");
 
-                    Long roleId = row.getLong("userRoleId_id");
+                    Long roleId = DbUtil.getLong(row, "userRoleId_id");
 
-                    String roleName = row.getString("role_name");
+                    String roleName = DbUtil.getString(row, "role_name");
 
                     fetchPermissionsAndCompleteLogin(ctx, userId, finalUsername, email, roleId, roleName);
 
@@ -213,11 +227,11 @@ public class AuthHandler {
 
                                 Row row = rows.iterator().next();
 
-                                Long roleId = row.getLong("userRoleId_id");
+                                Long roleId = DbUtil.getLong(row, "userRoleId_id");
 
-                                String roleName = row.getString("role_name");
+                                String roleName = DbUtil.getString(row, "role_name");
 
-                                String email = row.getString("email");
+                                String email = DbUtil.getString(row, "email");
 
                                 fetchPermissionsAndCompleteLogin(ctx, userId, username, email, roleId, roleName);
 
@@ -287,8 +301,12 @@ public class AuthHandler {
                     "PERM_SUBNET_VIEW", "PERM_SUBNET_EDIT", "PERM_SUBNET_DELETE",
                     "PERM_DISCOVERY_READ", "PERM_DISCOVERY_WRITE",
                     "PERM_DHCP_READ", "PERM_DHCP_WRITE",
-                    "PERM_ALERT_READ", "PERM_ALERT_WRITE",
-                    "PERM_SETTINGS_READ", "PERM_SETTINGS_WRITE"
+                    "PERM_ALERTS_READ", "PERM_ALERTS_WRITE", "PERM_ALERT_READ", "PERM_ALERT_WRITE",
+                    "PERM_SETTINGS_READ", "PERM_SETTINGS_WRITE",
+                    "PERM_EVENT NOTIFICATIONS_READ", "PERM_EVENT NOTIFICATIONS_WRITE", "PERM_EVENT_NOTIFICATIONS_READ", "PERM_EVENT_NOTIFICATIONS_WRITE",
+                    "PERM_REPORTS_READ", "PERM_REPORTS_WRITE",
+                    "PERM_ROGUE DETECTION_READ", "PERM_ROGUE DETECTION_WRITE", "PERM_ROGUE_DETECTION_READ", "PERM_ROGUE_DETECTION_WRITE",
+                    "PERM_IP REQUESTS_READ", "PERM_IP REQUESTS_WRITE", "PERM_IP_REQUESTS_READ", "PERM_IP_REQUESTS_WRITE"
             );
 
             issueTokenAndRespond(ctx, userId, username, email, 1L, "ROLE_ADMIN", adminPerms);
@@ -322,11 +340,17 @@ public class AuthHandler {
 
                             String normalizedFeature = feature.toUpperCase().replace(" ", "_");
 
+                            String rawFeature = feature.toUpperCase();
+
                             if (Boolean.TRUE.equals(read)) {
 
                                 permissions.add("PERM_" + normalizedFeature + "_READ");
 
                                 permissions.add("PERM_" + normalizedFeature + "_VIEW");
+
+                                permissions.add("PERM_" + rawFeature + "_READ");
+
+                                permissions.add("PERM_" + rawFeature + "_VIEW");
 
                             }
 
@@ -335,6 +359,10 @@ public class AuthHandler {
                                 permissions.add("PERM_" + normalizedFeature + "_WRITE");
 
                                 permissions.add("PERM_" + normalizedFeature + "_EDIT");
+
+                                permissions.add("PERM_" + rawFeature + "_WRITE");
+
+                                permissions.add("PERM_" + rawFeature + "_EDIT");
 
                             }
 
@@ -391,20 +419,46 @@ public class AuthHandler {
 
         }
 
-        ctx.response()
-                .putHeader("Set-Cookie", "token=" + accessToken + "; Path=/; Max-Age=" + DEFAULT_TOKEN_EXPIRATION_SEC + "; HttpOnly; SameSite=Lax")
-                .putHeader("Set-Cookie", "refreshToken=" + refreshToken + "; Path=/api/auth; Max-Age=" + DEFAULT_REFRESH_EXPIRATION_SEC + "; HttpOnly; SameSite=Strict")
-                .putHeader("Set-Cookie", "userName=" + username + "; Path=/; Max-Age=" + DEFAULT_TOKEN_EXPIRATION_SEC + "; SameSite=Lax");
+        if (ctx.vertx() != null && ctx.vertx().eventBus() != null) {
+
+            ctx.vertx().eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
+                    .put("eventType", "USER_LOGIN")
+                    .put("eventContext", "User '" + username + "' logged in successfully")
+                    .put("severity", 1));
+
+        }
+
+        String encodedAuthorities = java.net.URLEncoder.encode(io.vertx.core.json.Json.encode(permissions), java.nio.charset.StandardCharsets.UTF_8);
+
+        ctx.response().headers()
+                .add("Set-Cookie", "token=" + accessToken + "; Path=/; Max-Age=" + DEFAULT_TOKEN_EXPIRATION_SEC + "; SameSite=Lax")
+                .add("Set-Cookie", "refreshToken=" + refreshToken + "; Path=/api/auth; Max-Age=" + DEFAULT_REFRESH_EXPIRATION_SEC + "; SameSite=Strict")
+                .add("Set-Cookie", "userName=" + username + "; Path=/; Max-Age=" + DEFAULT_TOKEN_EXPIRATION_SEC + "; SameSite=Lax")
+                .add("Set-Cookie", "authorities=" + encodedAuthorities + "; Path=/; Max-Age=" + DEFAULT_TOKEN_EXPIRATION_SEC + "; SameSite=Lax");
 
         ApiResponse.sendSuccess(ctx, data);
 
     }
 
+//    ONLY when MySQL is temporarily offline, connection timed out, or in standalone offline testing environments without a live DB.
+//    When the database is connected, handleFallbackAuth is bypassed completely, and the system uses the real database tables!
     private void handleFallbackAuth(RoutingContext ctx, String username, String password) {
 
         if ("admin".equalsIgnoreCase(username) && ("admin".equals(password) || "password".equals(password) || "admin@123".equals(password))) {
 
-            List<String> adminPerms = List.of("ROLE_ADMIN", "ALL", "PERM_ALL", "PERM_DASHBOARD_READ", "PERM_SUBNET_VIEW", "PERM_SUBNET_EDIT");
+            List<String> adminPerms = List.of(
+                    "ROLE_ADMIN", "ALL", "PERM_ALL",
+                    "PERM_DASHBOARD_READ", "PERM_DASHBOARD_WRITE",
+                    "PERM_SUBNET_VIEW", "PERM_SUBNET_EDIT", "PERM_SUBNET_DELETE",
+                    "PERM_DISCOVERY_READ", "PERM_DISCOVERY_WRITE",
+                    "PERM_DHCP_READ", "PERM_DHCP_WRITE",
+                    "PERM_ALERTS_READ", "PERM_ALERTS_WRITE", "PERM_ALERT_READ", "PERM_ALERT_WRITE",
+                    "PERM_SETTINGS_READ", "PERM_SETTINGS_WRITE",
+                    "PERM_EVENT NOTIFICATIONS_READ", "PERM_EVENT NOTIFICATIONS_WRITE", "PERM_EVENT_NOTIFICATIONS_READ", "PERM_EVENT_NOTIFICATIONS_WRITE",
+                    "PERM_REPORTS_READ", "PERM_REPORTS_WRITE",
+                    "PERM_ROGUE DETECTION_READ", "PERM_ROGUE DETECTION_WRITE", "PERM_ROGUE_DETECTION_READ", "PERM_ROGUE_DETECTION_WRITE",
+                    "PERM_IP REQUESTS_READ", "PERM_IP REQUESTS_WRITE", "PERM_IP_REQUESTS_READ", "PERM_IP_REQUESTS_WRITE"
+            );
 
             issueTokenAndRespond(ctx, 1L, username, "admin@motadata.com", 1L, "ROLE_ADMIN", adminPerms);
 

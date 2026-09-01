@@ -121,7 +121,9 @@ public class SubnetWorkerVerticle extends AbstractVerticle {
                         logger.error("SubnetWorkerVerticle failed to populate IPs for Subnet ID {}: {}",
                                 subnetId, err.getMessage(), err);
 
-                        message.fail(500, err.getMessage());
+                        mysqlPool.preparedQuery(DbQueries.DELETE_SUBNET_IPS)
+                                .execute(Tuple.of(subnetId))
+                                .onComplete(v -> message.fail(500, "IP population failed: " + err.getMessage()));
 
                     });
 

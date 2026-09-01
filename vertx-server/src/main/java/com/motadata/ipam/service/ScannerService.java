@@ -2,6 +2,8 @@ package com.motadata.ipam.service;
 
 import com.motadata.ipam.database.DbQueries;
 
+import com.motadata.ipam.database.DbUtil;
+
 import com.motadata.ipam.plugin.GoPluginBridge;
 
 import io.vertx.core.Future;
@@ -102,14 +104,15 @@ public class ScannerService {
 
         String countIpsSql = DbQueries.SCANNER_COUNT_IPS;
 
-        return mysqlPool.preparedQuery(fetchSubnetSql).execute(Tuple.of(subnetId))
+        // Run scanning asynchronously on worker thread without blocking HTTP response
+        mysqlPool.preparedQuery(fetchSubnetSql).execute(Tuple.of(subnetId))
                 .compose(subnetRows -> {
 
                     if (!subnetRows.iterator().hasNext()) {
 
                         activeScans.remove(subnetId);
 
-                        return Future.failedFuture("Subnet with ID " + subnetId + " not found");
+                        return Future.<JsonObject>failedFuture("Subnet with ID " + subnetId + " not found");
 
                     }
 
@@ -184,6 +187,8 @@ public class ScannerService {
 
                 });
 
+        return Future.succeededFuture(initialStatus);
+
     }
 
     /**
@@ -239,6 +244,36 @@ public class ScannerService {
 
                                         vertx.eventBus().publish("ipam.subnet.scan.completed", summary);
 
+                                        // Automated Alert Trigger: If subnet utilization >= 80%, publish HIGH_UTILIZATION alert
+                                        if (totalIps > 0 && ((double) allUpIps.size() / totalIps) >= 0.80) {
+
+                                            int pct = (int) (((double) allUpIps.size() / totalIps) * 100);
+
+                                            JsonObject alertMsg = new JsonObject()
+                                                    .put("subnetId", subnetId)
+                                                    .put("alertType", "HIGH_UTILIZATION")
+                                                    .put("message", "Subnet '" + subnetName + "' utilization reached " + pct + "% (" + allUpIps.size() + "/" + totalIps + " IPs used)")
+                                                    .put("subnet", subnetAddress);
+
+                                            vertx.eventBus().send(AlertService.ADDRESS_ALERT_PUBLISH, alertMsg);
+
+                                        }
+
+                                    }
+
+                                    if (vertx != null && vertx.eventBus() != null) {
+
+                                        vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
+                                                .put("eventType", "SCAN_COMPLETED")
+                                                .put("eventContext", "Completed ICMP scan for Subnet '" + subnetName + "' (" + allUpIps.size() + " UP, " + allDownIps.size() + " DOWN)")
+                                                .put("severity", 1));
+
+                                    } else {
+
+                                        mysqlPool.preparedQuery(DbQueries.INSERT_EVENT)
+                                                .execute(Tuple.of("SCAN_COMPLETED", "Completed ICMP scan for Subnet '" + subnetName + "' (" + allUpIps.size() + " UP, " + allDownIps.size() + " DOWN)", 1, null))
+                                                .onFailure(err -> logger.debug("Could not log scan event: {}", err.getMessage()));
+
                                     }
 
                                     return summary;
@@ -253,7 +288,7 @@ public class ScannerService {
 
                     for (Row row : rows) {
 
-                        Long id = row.getLong("id");
+                        Long id = DbUtil.getLong(row, "id");
 
                         if (id != null && id > maxId) {
 
@@ -261,11 +296,11 @@ public class ScannerService {
 
                         }
 
-                        String ip = row.getString("ip_address");
+                        String ip = DbUtil.getString(row, "ip_address");
 
-                        if (ip != null && !ip.isBlank()) {
+                        if (!ip.isEmpty()) {
 
-                            chunkIps.add(ip.trim());
+                            chunkIps.add(ip);
 
                         }
 
@@ -278,8 +313,8 @@ public class ScannerService {
                     JsonObject pingPayload = new JsonObject()
                             .put("ip-addresses", commaSeparatedIps)
                             .put("max-ping-check-retry-count", 1)
-                            .put("max-ping-check-timeout", 1000)
-                            .put("max-concurrent-ping", 100);
+                            .put("max-ping-check-timeout", 400)
+                            .put("max-concurrent-ping", 256);
 
                     return goPluginBridge.execute("ping", pingPayload.encode())
                             .compose(pingResult -> {
@@ -311,7 +346,7 @@ public class ScannerService {
 
                                 }
 
-                                return updateIpStatusBatch(subnetId, up)
+                                return updateIpStatusBatch(subnetId, up, down)
                                         .compose(v -> streamAndScanChunks(
                                                 subnetId,
                                                 subnetName,
@@ -358,33 +393,84 @@ public class ScannerService {
     }
 
     /**
-     * Batch updates responding IPs to USED status in MariaDB.
+     * Returns the first active scan in progress across all subnets, if any.
      */
-    private Future<Void> updateIpStatusBatch(Long subnetId, JsonArray upIps) {
+    public JsonObject getAnyActiveScan() {
 
-        if (upIps == null || upIps.isEmpty()) {
+        for (Map.Entry<Long, JsonObject> entry : activeScans.entrySet()) {
 
-            return Future.succeededFuture();
+            JsonObject st = entry.getValue();
 
-        }
+            if (st != null && "IN_PROGRESS".equalsIgnoreCase(st.getString("status"))) {
 
-        String updateIpStatusSql = DbQueries.SCANNER_UPDATE_IP_STATUS_USED;
-
-        List<Tuple> batchList = new ArrayList<>(upIps.size());
-
-        for (int i = 0; i < upIps.size(); i++) {
-
-            String ip = upIps.getString(i);
-
-            if (ip != null && !ip.isBlank()) {
-
-                batchList.add(Tuple.of(subnetId, ip.trim()));
+                return st;
 
             }
 
         }
 
-        return mysqlPool.preparedQuery(updateIpStatusSql).executeBatch(batchList).mapEmpty();
+        return null;
+
+    }
+
+    /**
+     * Batch updates responding IPs to USED status, and offline previously-USED IPs to AVAILABLE status in MariaDB.
+     */
+    private Future<Void> updateIpStatusBatch(Long subnetId, JsonArray upIps, JsonArray downIps) {
+
+        List<Future> updateFutures = new ArrayList<>();
+
+        if (upIps != null && !upIps.isEmpty()) {
+
+            String updateUsedSql = DbQueries.SCANNER_UPDATE_IP_STATUS_USED;
+
+            List<Tuple> usedBatch = new ArrayList<>(upIps.size());
+
+            for (int i = 0; i < upIps.size(); i++) {
+
+                String ip = upIps.getString(i);
+
+                if (ip != null && !ip.isBlank()) {
+
+                    usedBatch.add(Tuple.of(subnetId, ip.trim()));
+
+                }
+
+            }
+
+            updateFutures.add(mysqlPool.preparedQuery(updateUsedSql).executeBatch(usedBatch).mapEmpty());
+
+        }
+
+        if (downIps != null && !downIps.isEmpty()) {
+
+            String updateAvailSql = DbQueries.SCANNER_UPDATE_IP_STATUS_AVAILABLE;
+
+            List<Tuple> availBatch = new ArrayList<>(downIps.size());
+
+            for (int i = 0; i < downIps.size(); i++) {
+
+                String ip = downIps.getString(i);
+
+                if (ip != null && !ip.isBlank()) {
+
+                    availBatch.add(Tuple.of(subnetId, ip.trim()));
+
+                }
+
+            }
+
+            updateFutures.add(mysqlPool.preparedQuery(updateAvailSql).executeBatch(availBatch).mapEmpty());
+
+        }
+
+        if (updateFutures.isEmpty()) {
+
+            return Future.succeededFuture();
+
+        }
+
+        return io.vertx.core.CompositeFuture.all(updateFutures).mapEmpty();
 
     }
 

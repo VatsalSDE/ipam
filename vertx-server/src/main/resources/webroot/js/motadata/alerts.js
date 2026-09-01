@@ -26,29 +26,26 @@ var alerts = {
 
         var reportDropDown = $("#alertFilter");
 
-        var data = [{text: "Live", value: "live" },{text: "Clear", value: "clear" }];
+        var data = [
+            { text: "Live", value: "live" },
+            { text: "Clear", value: "clear" }
+        ];
 
-        flux.getKendoDropDownList({dropDownId:reportDropDown,dataTextField: "text",dataValueField: "value",data:data});
-
-        var param = {};
-
-        reportDropDown.data('kendoDropDownList').destroy();
-
-        reportDropDown.kendoDropDownList
-        ({
-            change:function (e)
-            {
-                e.preventDefault();
-
-                param['alertFilter'] = this.value();
-
-                alerts.renderAlertsGrid(param);
+        reportDropDown.kendoDropDownList({
+            dataTextField: "text",
+            dataValueField: "value",
+            dataSource: data,
+            value: "live",
+            change: function (e) {
+                if (e) {
+                    e.preventDefault();
+                }
+                var val = this.value();
+                alerts.renderAlertsGrid({ alertFilter: val });
             }
         });
 
-        reportDropDown.getKendoDropDownList().trigger('change');
-
-        reportDropDown.data('kendoDropDownList').refresh();
+        alerts.renderAlertsGrid({ alertFilter: "live" });
     },
 
     // ----------------------------------------------------------------------Load Alerts grid----------------------------------------------------------------------------------------------------//

@@ -71,7 +71,7 @@ public class MainVerticle extends AbstractVerticle {
         // 3. Assemble Web Router (Auth, Subnet, Health endpoints)
         Router router = AppRouter.create(vertx, mysqlPool, goPluginBridge, jwtTokenService, rbacAuthHandler);
 
-        // 4. Deploy Dedicated Background Worker Verticles (Singleton across all instances)
+        // 4. Deploy Dedicated Background Worker Verticles (Singleton across all instances) so that the worker verticles are deployed only once
         boolean isFirstInstance = vertx.sharedData().getLocalMap("ipam.system").putIfAbsent("workers.deployed", Boolean.TRUE) == null;
 
         if (isFirstInstance) {

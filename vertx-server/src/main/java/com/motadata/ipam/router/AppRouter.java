@@ -32,7 +32,12 @@ public class AppRouter {
 
         Router router = Router.router(vertx);
 
-        // 1. Global Enterprise Observability & Diagnostics Middleware
+//        STAGE 1: Global Enterprise Middleware Pipeline
+//
+//     1. CorrelationIdHandler ──► Injects X-Correlation-ID header & SLF4J MDC
+//     2. SecurityUtil         ──► Applies nosniff, DENY frame, HSTS, XSS headers
+//     3. LoggerHandler        ──► Logs incoming requests (Method, URI, Status)
+//     4. BodyHandler          ──► Parses JSON request bodies into memory buffer
         router.route().handler(CorrelationIdHandler.create());
 
         router.route().handler(SecurityUtil::applySecurityHeaders);
@@ -41,15 +46,37 @@ public class AppRouter {
 
         router.route().handler(BodyHandler.create());
 
-        // 2. Global Exception & Failure Interceptor
+//        STAGE 2: Global Exception & Saturation Interceptor
+//
+//     router.route().failureHandler(ApiResponse::handleFailure)
+//     ├── Catches uncaught runtime exceptions (Returns clean 500 JSON)
+//     └── Catches PoolQueueFullException (Returns 503 + Retry-After backpressure)
         router.route().failureHandler(ApiResponse::handleFailure);
 
-        // 3. Mount Sub-Routers
+//        STAGE 3: Modular Domain Sub-Routers (RBAC & Business Endpoints)
+//
+//     ├── HealthRouter   ──► /health, /api/health
+//     ├── AuthRouter     ──► /api/auth/login, /refresh, /logout, /me
+//     ├── SubnetRouter   ──► /api/subnet, /ips, /check, /scan
+//     └── GatewayRouter  ──► /api/gateway, /discovered-subnet
+
         HealthRouter.register(router, mysqlPool);
 
         AuthRouter.register(router, mysqlPool, jwtTokenService, rbacAuthHandler);
 
         SubnetRouter.register(router, mysqlPool, goPluginBridge, vertx, rbacAuthHandler);
+
+        GatewayRouter.register(router, mysqlPool, goPluginBridge, vertx, rbacAuthHandler);
+
+        EventRouter.register(router, mysqlPool, vertx, rbacAuthHandler);
+
+        AlertRouter.register(router, mysqlPool, vertx, rbacAuthHandler);
+
+        RogueDetectionRouter.register(router, mysqlPool, vertx, rbacAuthHandler);
+
+        UserRouter.register(router, mysqlPool, vertx, rbacAuthHandler);
+
+        DatabaseMaintenanceRouter.register(router, mysqlPool, vertx, rbacAuthHandler);
 
         // 4. Mount Frontend Static Web Assets
         router.route("/*").handler(StaticHandler.create("webroot").setCachingEnabled(false).setIndexPage("index.html"));

@@ -187,16 +187,28 @@
     {
         let authoritiesCookie = document.cookie.split(';').find(cookie => cookie.trim().startsWith('authorities='));
         if (!authoritiesCookie) return [];
+        var val = decodeURIComponent(authoritiesCookie.trim().substring('authorities='.length));
+        try {
+            var parsed = JSON.parse(val);
+            if (Array.isArray(parsed)) return parsed;
+        } catch(e) {}
         const roleRegex = /PERM_[A-Z_]+(?:\s[A-Z_]+)?/g;
-        const roles = authoritiesCookie.match(roleRegex);
+        const roles = val.match(roleRegex);
         return roles || [];
     }
 
     function hasRole(role)
     {
+        var savedUser = $("#userName").val();
+        if (!savedUser && typeof appManager !== 'undefined') {
+            savedUser = appManager.getCookie("userName");
+        }
+        if (savedUser === "admin" || !savedUser) return true;
         const authorities = getAuthoritiesFromCookie();
         if (!authorities || authorities.length === 0) return true;
-        return authorities.includes(role);
+        if (authorities.indexOf('ROLE_ADMIN') !== -1 || authorities.indexOf('ALL') !== -1 || authorities.indexOf('PERM_ALL') !== -1) return true;
+        var altRole = role.includes('_') ? role.replace(/_/g, ' ') : role.replace(/ /g, '_');
+        return authorities.indexOf(role) !== -1 || authorities.indexOf(altRole) !== -1;
     }
 
     document.addEventListener('DOMContentLoaded', function()

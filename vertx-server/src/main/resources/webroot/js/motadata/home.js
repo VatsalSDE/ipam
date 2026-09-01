@@ -37,9 +37,11 @@ var homeManager =
 
             topManager.setActiveMenu('home');
 
-            var headerPanel = '<div class="dropdown" style="position: relative; display: inline-block;"><button class="primery-btn dropdown-toggle" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="background-color: #007bff; color: white; border: none; padding: 10px 20px; font-size: 14px; cursor: pointer; border-radius: 5px; transition: background 0.3s ease-in-out; white-space: nowrap; display: flex; align-items: center; justify-content: center; width: 100px;">Actions <span class="caret"></span></button>' +
+            var canEdit = (typeof hasRole === 'function') ? (hasRole('PERM_SUBNET_EDIT') || hasRole('ROLE_ADMIN')) : true;
+
+            var headerPanel = canEdit ? ('<div class="dropdown" style="position: relative; display: inline-block;"><button class="primery-btn dropdown-toggle" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="background-color: #007bff; color: white; border: none; padding: 10px 20px; font-size: 14px; cursor: pointer; border-radius: 5px; transition: background 0.3s ease-in-out; white-space: nowrap; display: flex; align-items: center; justify-content: center; width: 100px;">Actions <span class="caret"></span></button>' +
                 '<ul id="actionDropDownMenu" class="dropdown-menu" aria-labelledby="dropdownMenuButton" style="position: absolute; top: 100%; left: auto; right: 0; background: white; border: 1px solid #ccc; border-radius: 5px; list-style: none; padding: 5px; width: 120px; display: none; box-shadow: 0px 4px 6px rgba(0,0,0,0.1);"><li><button id="subnetButton" class="primery-btn" title="Add Subnet" data-panel="addSubnetModal" style="background: none; border: none; width: 100%; text-align: left; padding: 8px; font-size: 14px; cursor: pointer; color: #007bff; outline: none; box-shadow: none; user-select: none;" onmouseover="this.style.color=\'#0056b3\';" onmouseout="this.style.color=\'#007bff\';" onfocus="this.blur();">' +
-                'Add Subnet</button></li><li><button id="supernetButton" class="primery-btn" title="Add Supernet" data-panel="addSupernetModal" style="background: none; border: none; width: 100%; text-align: left; padding: 8px; font-size: 14px; cursor: pointer; color: #007bff; outline: none; box-shadow: none; user-select: none;" onmouseover="this.style.color=\'#0056b3\';" onmouseout="this.style.color=\'#007bff\';" onfocus="this.blur();">Add Supernet</button></li></ul></div>';
+                'Add Subnet</button></li><li><button id="supernetButton" class="primery-btn" title="Add Supernet" data-panel="addSupernetModal" style="background: none; border: none; width: 100%; text-align: left; padding: 8px; font-size: 14px; cursor: pointer; color: #007bff; outline: none; box-shadow: none; user-select: none;" onmouseover="this.style.color=\'#0056b3\';" onmouseout="this.style.color=\'#007bff\';" onfocus="this.blur();">Add Supernet</button></li></ul></div>') : '';
 
             $("#header_panel").html('<div class="title-inner-box"> Hi, ' + $("#userName").val() + '</div>\n' +
                 '<div class="corner-content" style="display: flex; align-items: center; justify-content: flex-start; gap: 5px;"><button id="exportScreen" class="defualt-btn margin-r-5" title="Screenshot" style="margin-left: 10px;"><i class="fa fa-camera"></i> Screenshot </button>' +
@@ -90,6 +92,8 @@ var homeManager =
             appManager.executeGETRequest({url: '/vendor/',callback:widget.renderVendorwiseIpSummary,params:homeManager.VendorWiseIp});
 
             loaderUtil.hideModalLoader();
+
+            loaderUtil.hideCentralModalLoader();
         },
 
         loadHomeScreenActionMenuEvents : function ()

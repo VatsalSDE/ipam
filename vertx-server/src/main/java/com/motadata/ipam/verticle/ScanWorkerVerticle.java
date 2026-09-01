@@ -82,9 +82,11 @@ public class ScanWorkerVerticle extends AbstractVerticle {
 
             JsonObject body = message.body();
 
-            if (body == null || !body.containsKey("subnetId")) {
+            if (body == null || !body.containsKey("subnetId") || body.getLong("subnetId") == null || body.getLong("subnetId") <= 0) {
 
-                message.fail(400, "Missing subnetId parameter");
+                JsonObject any = scannerService.getAnyActiveScan();
+
+                message.reply(any != null ? any : new JsonObject().put("status", "IDLE"));
 
                 return;
 

@@ -2,6 +2,8 @@ package com.motadata.ipam.scheduler;
 
 import com.motadata.ipam.database.DbQueries;
 
+import com.motadata.ipam.database.DbUtil;
+
 import com.motadata.ipam.service.ScannerService;
 
 import io.vertx.core.Vertx;
@@ -98,13 +100,13 @@ public class SubnetScanScheduler {
 
                     for (Row row : rows) {
 
-                        Long subnetId = row.getLong("id");
+                        Long subnetId = DbUtil.getLong(row, "id");
 
-                        String subnetName = row.getString("subnetName");
+                        String subnetName = DbUtil.getString(row, "subnetName");
 
-                        Integer scheduleHour = row.getInteger("scheduleHour");
+                        Integer scheduleHour = DbUtil.getIntOrDefault(row, "scheduleHour", 24);
 
-                        if (scheduleHour == null || scheduleHour <= 0) {
+                        if (scheduleHour <= 0) {
 
                             scheduleHour = 24; // Default to daily if not set
 
