@@ -1,6 +1,7 @@
 package com.motadata.ipam.security;
 
-import com.motadata.ipam.model.ApiResponse;
+
+import com.motadata.ipam.core.model.ApiResponse;
 
 import io.vertx.core.json.JsonObject;
 

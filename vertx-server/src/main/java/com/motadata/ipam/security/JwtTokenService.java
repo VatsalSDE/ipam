@@ -1,6 +1,7 @@
 package com.motadata.ipam.security;
 
-import com.motadata.ipam.config.AppConfig;
+
+import com.motadata.ipam.core.config.AppConfig;
 
 import io.vertx.core.Future;
 

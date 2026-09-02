@@ -1,6 +1,7 @@
 package com.motadata.ipam;
 
-import com.motadata.ipam.plugin.GoPluginBridge;
+
+import com.motadata.ipam.scanner.GoPluginBridge;
 
 import io.vertx.core.Vertx;
 

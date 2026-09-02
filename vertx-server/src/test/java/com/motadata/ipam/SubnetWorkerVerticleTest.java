@@ -1,12 +1,10 @@
 package com.motadata.ipam;
 
-import com.motadata.ipam.config.AppConfig;
 
-import com.motadata.ipam.database.DatabasePool;
-
-import com.motadata.ipam.util.IPv4Util;
-
-import com.motadata.ipam.verticle.SubnetWorkerVerticle;
+import com.motadata.ipam.core.config.AppConfig;
+import com.motadata.ipam.core.database.DatabasePool;
+import com.motadata.ipam.subnet.IPv4Util;
+import com.motadata.ipam.subnet.SubnetWorkerVerticle;
 
 import io.vertx.core.DeploymentOptions;
 

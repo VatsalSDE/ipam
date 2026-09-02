@@ -1,9 +1,9 @@
 package com.motadata.ipam;
 
-import com.motadata.ipam.config.AppConfig;
 
-import com.motadata.ipam.database.DatabasePool;
-
+import com.motadata.ipam.MainVerticle;
+import com.motadata.ipam.core.config.AppConfig;
+import com.motadata.ipam.core.database.DatabasePool;
 import com.motadata.ipam.security.JwtTokenService;
 
 import io.vertx.core.CompositeFuture;

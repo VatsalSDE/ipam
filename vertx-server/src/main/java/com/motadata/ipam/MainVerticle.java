@@ -1,20 +1,14 @@
 package com.motadata.ipam;
 
-import com.motadata.ipam.config.AppConfig;
 
-import com.motadata.ipam.database.DatabasePool;
-
-import com.motadata.ipam.plugin.GoPluginBridge;
-
-import com.motadata.ipam.router.AppRouter;
-
+import com.motadata.ipam.core.AppRouter;
+import com.motadata.ipam.core.config.AppConfig;
+import com.motadata.ipam.core.database.DatabasePool;
+import com.motadata.ipam.scanner.GoPluginBridge;
+import com.motadata.ipam.scanner.ScanWorkerVerticle;
 import com.motadata.ipam.security.JwtTokenService;
-
 import com.motadata.ipam.security.RbacAuthHandler;
-
-import com.motadata.ipam.verticle.ScanWorkerVerticle;
-
-import com.motadata.ipam.verticle.SubnetWorkerVerticle;
+import com.motadata.ipam.subnet.SubnetWorkerVerticle;
 
 import io.vertx.core.AbstractVerticle;
 

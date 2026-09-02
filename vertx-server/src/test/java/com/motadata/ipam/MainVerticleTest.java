@@ -1,5 +1,10 @@
 package com.motadata.ipam;
 
+
+import com.motadata.ipam.MainVerticle;
+import com.motadata.ipam.core.config.AppConfig;
+import com.motadata.ipam.core.database.DatabasePool;
+
 import io.vertx.core.Vertx;
 
 import io.vertx.core.http.HttpClient;
@@ -28,11 +33,11 @@ public class MainVerticleTest {
     @BeforeEach
     void setup() {
 
-        com.motadata.ipam.database.DatabasePool.close();
+        com.motadata.ipam.core.database.DatabasePool.close();
 
-        com.motadata.ipam.config.AppConfig.reset();
+        com.motadata.ipam.core.config.AppConfig.reset();
 
-        com.motadata.ipam.config.AppConfig.getInstance().setServerPort(8899);
+        com.motadata.ipam.core.config.AppConfig.getInstance().setServerPort(8899);
 
     }
 

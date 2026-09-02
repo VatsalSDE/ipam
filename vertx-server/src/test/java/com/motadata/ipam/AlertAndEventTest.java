@@ -1,7 +1,12 @@
 package com.motadata.ipam;
 
-import com.motadata.ipam.config.AppConfig;
 
+import com.motadata.ipam.MainVerticle;
+import com.motadata.ipam.alert.AlertRouter;
+import com.motadata.ipam.core.config.AppConfig;
+import com.motadata.ipam.core.database.DatabasePool;
+import com.motadata.ipam.event.EventRouter;
+import com.motadata.ipam.rogue.RogueDetectionRouter;
 import com.motadata.ipam.security.JwtTokenService;
 
 import io.vertx.core.CompositeFuture;
@@ -53,7 +58,7 @@ class AlertAndEventTest {
 
         AppConfig.reset();
 
-        com.motadata.ipam.database.DatabasePool.close();
+        com.motadata.ipam.core.database.DatabasePool.close();
 
         AppConfig.getInstance().setServerPort(TEST_PORT);
 

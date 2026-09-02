@@ -1,8 +1,12 @@
 package com.motadata.ipam;
 
-import com.motadata.ipam.config.AppConfig;
 
+import com.motadata.ipam.MainVerticle;
+import com.motadata.ipam.core.config.AppConfig;
+import com.motadata.ipam.core.database.DatabasePool;
 import com.motadata.ipam.security.JwtTokenService;
+import com.motadata.ipam.subnet.SubnetHandler;
+import com.motadata.ipam.subnet.SubnetRouter;
 
 import io.vertx.core.Vertx;
 
@@ -45,7 +49,7 @@ class SubnetHandlerTest {
 
         AppConfig.reset();
 
-        com.motadata.ipam.database.DatabasePool.close();
+        com.motadata.ipam.core.database.DatabasePool.close();
 
         AppConfig.getInstance().setServerPort(TEST_PORT);
 
