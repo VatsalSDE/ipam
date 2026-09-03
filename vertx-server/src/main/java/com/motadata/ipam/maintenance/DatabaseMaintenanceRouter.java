@@ -20,36 +20,25 @@ public class DatabaseMaintenanceRouter {
 
         DatabaseMaintenanceHandler handler = new DatabaseMaintenanceHandler(service);
 
-        // Get Settings
+        // 1. Get Global Database Maintenance & Retention Settings
         router.get("/api/database-maintenance")
                 .handler(rbacAuthHandler.requirePermission("PERM_SETTINGS_READ"))
                 .handler(handler::getSettings);
 
-        router.get("/api/databaseMaintenance/:id")
-                .handler(rbacAuthHandler.requirePermission("PERM_SETTINGS_READ"))
-                .handler(handler::getSettings);
-
-        // Update Settings
+        // 2. Update Global Database Maintenance & Retention Settings
         router.put("/api/database-maintenance")
                 .handler(rbacAuthHandler.requirePermission("PERM_SETTINGS_WRITE"))
                 .handler(handler::updateSettings);
 
-        router.put("/api/databaseMaintenance/:id")
-                .handler(rbacAuthHandler.requirePermission("PERM_SETTINGS_WRITE"))
-                .handler(handler::updateSettings);
-
-        // Execute Purge / Archive
-        router.delete("/api/database-maintenance")
-                .handler(rbacAuthHandler.requirePermission("PERM_SETTINGS_WRITE"))
-                .handler(handler::purge);
-
-        router.delete("/api/databaseMaintenance/:id")
-                .handler(rbacAuthHandler.requirePermission("PERM_SETTINGS_WRITE"))
-                .handler(handler::purge);
-
+        // 3. Execute Retention Purge / Archive
         router.post("/api/database-maintenance/purge")
                 .handler(rbacAuthHandler.requirePermission("PERM_SETTINGS_WRITE"))
                 .handler(handler::purge);
+
+        // 4. Execute Physical Database Export / Backup
+        router.post("/api/database-maintenance/backup")
+                .handler(rbacAuthHandler.requirePermission("PERM_SETTINGS_WRITE"))
+                .handler(handler::runBackup);
 
     }
 

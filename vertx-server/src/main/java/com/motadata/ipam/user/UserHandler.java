@@ -234,7 +234,7 @@ public class UserHandler {
     }
 
     /**
-     * GET /api/userRole/feature/ or GET /api/userRole/features
+     * GET /api/userRole/feature/ or GET /api/user/roles/features
      * Lists system features for permission checkboxes.
      */
     public void listFeatures(RoutingContext ctx) {
@@ -246,10 +246,26 @@ public class UserHandler {
     }
 
     /**
-     * GET /api/userRole/:id
-     * Gets permissions for a specific role.
+     * Direct array response for KendoGrid transport: GET /userRole/feature/
      */
-    public void getRolePermissions(RoutingContext ctx) {
+    public void listFeaturesDirect(RoutingContext ctx) {
+
+        userService.listFeatures()
+                .onSuccess(features -> ctx.response()
+                        .putHeader("Content-Type", "application/json")
+                        .end(features.encode()))
+                .onFailure(err -> ctx.response()
+                        .setStatusCode(500)
+                        .putHeader("Content-Type", "application/json")
+                        .end(new JsonObject().put("error", err.getMessage()).encode()));
+
+    }
+
+    /**
+     * GET /api/user/roles/:id
+     * Gets full role object with its permissions.
+     */
+    public void getRole(RoutingContext ctx) {
 
         Long roleId = parseId(ctx.pathParam("id"));
 
@@ -261,9 +277,15 @@ public class UserHandler {
 
         }
 
-        userService.getRolePermissions(roleId)
-                .onSuccess(permissions -> ApiResponse.sendSuccess(ctx, permissions))
-                .onFailure(err -> ApiResponse.sendError(ctx, 500, "ROLE_PERMISSIONS_FAILED", err.getMessage()));
+        userService.getRoleById(roleId)
+                .onSuccess(role -> ApiResponse.sendSuccess(ctx, role))
+                .onFailure(err -> ApiResponse.sendError(ctx, 500, "ROLE_GET_FAILED", err.getMessage()));
+
+    }
+
+    public void getRolePermissions(RoutingContext ctx) {
+
+        getRole(ctx);
 
     }
 

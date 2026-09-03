@@ -420,7 +420,8 @@ public class AuthHandler {
             ctx.vertx().eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
                     .put("eventType", "USER_LOGIN")
                     .put("eventContext", "User '" + username + "' logged in successfully")
-                    .put("severity", 1));
+                    .put("severity", 1)
+                    .put("userId",userId));
 
         }
 
@@ -430,6 +431,7 @@ public class AuthHandler {
                 .add("Set-Cookie", "token=" + accessToken + "; Path=/; Max-Age=" + DEFAULT_TOKEN_EXPIRATION_SEC + "; SameSite=Lax")
                 .add("Set-Cookie", "refreshToken=" + refreshToken + "; Path=/api/auth; Max-Age=" + DEFAULT_REFRESH_EXPIRATION_SEC + "; SameSite=Strict")
                 .add("Set-Cookie", "userName=" + username + "; Path=/; Max-Age=" + DEFAULT_TOKEN_EXPIRATION_SEC + "; SameSite=Lax")
+                .add("Set-Cookie", "userRole=" + (roleName != null ? roleName : "ROLE_ADMIN") + "; Path=/; Max-Age=" + DEFAULT_TOKEN_EXPIRATION_SEC + "; SameSite=Lax")
                 .add("Set-Cookie", "authorities=" + encodedAuthorities + "; Path=/; Max-Age=" + DEFAULT_TOKEN_EXPIRATION_SEC + "; SameSite=Lax");
 
         ApiResponse.sendSuccess(ctx, data);

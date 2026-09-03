@@ -82,13 +82,47 @@ public class DatabaseMaintenanceHandler {
 
         } else if (ctx.body().asJsonObject() != null && ctx.body().asJsonObject().containsKey("maintainedDays")) {
 
-            days = ctx.body().asJsonObject().getInteger("maintainedDays", 30);
+            Object md = ctx.body().asJsonObject().getValue("maintainedDays");
+
+            if (md instanceof Number) {
+
+                days = ((Number) md).intValue();
+
+            } else if (md instanceof String && !((String) md).isBlank()) {
+
+                try {
+
+                    days = Integer.parseInt(((String) md).trim());
+
+                } catch (NumberFormatException ignored) {}
+
+            }
 
         }
 
         maintenanceService.purgeOldData(days)
                 .onSuccess(result -> ApiResponse.sendSuccess(ctx, 200, "Data retention archive executed successfully", result))
                 .onFailure(err -> ApiResponse.sendError(ctx, 500, "PURGE_FAILED", err.getMessage()));
+
+    }
+
+    /**
+     * POST /api/database-maintenance/backup
+     * Triggers on-demand physical database export to disk.
+     */
+    public void runBackup(RoutingContext ctx) {
+
+        String customPath = null;
+
+        if (ctx.body().asJsonObject() != null) {
+
+            customPath = ctx.body().asJsonObject().getString("backupPath");
+
+        }
+
+        maintenanceService.runDatabaseBackup(customPath)
+                .onSuccess(result -> ApiResponse.sendSuccess(ctx, 200, "Database backup created successfully", result))
+                .onFailure(err -> ApiResponse.sendError(ctx, 500, "BACKUP_FAILED", err.getMessage()));
 
     }
 

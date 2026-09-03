@@ -605,10 +605,22 @@ var userManagement =
                 $("#addPermissionsGrid").kendoGrid({
                     dataSource: {
                         transport: {
-                            read: {
-                                url: "/userRole/feature/",
-                                dataType: "json",
-                                type: "GET"
+                            read: function (options) {
+                                var token = (typeof appManager !== "undefined" && appManager.getCookie) ? appManager.getCookie("token") : (sessionStorage.getItem("token") || localStorage.getItem("token"));
+                                var headers = token ? { "Authorization": "Bearer " + token } : {};
+                                $.ajax({
+                                    url: "/api/user/roles/features",
+                                    type: "GET",
+                                    headers: headers,
+                                    dataType: "json",
+                                    success: function (res) {
+                                        var items = (res && res.data) ? res.data : (Array.isArray(res) ? res : []);
+                                        options.success(items);
+                                    },
+                                    error: function (xhr) {
+                                        options.error(xhr);
+                                    }
+                                });
                             }
                         },
                         schema: {
@@ -887,13 +899,55 @@ var userManagement =
         {
             event.preventDefault();
 
+            var currentElement = event.currentTarget;
+
+            var id = $(currentElement).closest('tr').find('td:first').text();
+
+            var tr = $(event.target).closest("tr");
+
+            var data = $("#userRoleManagementTable").data("kendoGrid").dataItem(tr);
+
+            var kendoModel =  $("#deletePrompt").kendoWindow({
+                visible:false,
+                resizable:false,
+                modal:true
+            }).data("kendoWindow");
+
+            kendoModel.content('<div> <div class="fixed-height-body-popup-panel align-center"> <span class="d-icon-warning font-50 margin-t-20 margin-b-10 color-red display-inline"></span> <p class="confirm-message-text color-black">Are you sure want to delete?</p> </div> <div class="footer-box-grid-box margin-t-10 align-right"> <button class="k-button k-button-icontext k-primary k-grid-update float-r" id="deleteRoleEvent">Delete</button> <button class="defualt-btn k-button k-grid-cancel float-l" id="cancelDeleteRole">Cancel</button> </div> </div>');
+
+            table.kendoWindowSetOption({title : 'Delete Confirmation',width:'400px', kendoWindow : kendoModel});
+
+            kendoModel.center().open();
+
+            flux.bindKendoButtonClickEvent({element:'deleteRoleEvent', kendoModal : kendoModel, id: id, gridId: 'userRoleManagementTable'},userManagement.deleteRole);
+
+            flux.bindKendoButtonClickEvent({element:'cancelDeleteRole', kendoModal : kendoModel}, userManagement.onClosePromptButtonClick);
+        }
+    },
+
+    deleteRole : function (event,id)
+    {
+        if(event)
+        {
+            event.event.preventDefault();
+
+            var kendoEvent = event.sender.options.prefix.kendoModal;
+
+            var gridId = event.sender.options.prefix.gridId;
+
             loaderUtil.showModalLoader();
 
-            var modal =  event.data.kendoModal;
+            appManager.executeDELETERequest({ url: '/userRole/'+id, container: kendoEvent, callback: userManagement.afterUserEntityDeleted, gridId: gridId});
+        }
+    },
 
-            var context =  event.data.data;
+    afterUserRoleEntityDeleted : function (context)
+    {
+        if(context)
+        {
+            var grid = $("#userRoleManagementTable").data("kendoGrid");
 
-            var grid = $("#userRoleManagementTable").data('kendoGrid');
+            var modal = context.container;
 
             grid.dataSource.remove(context);
 
@@ -901,7 +955,8 @@ var userManagement =
 
             modal.close();
 
-            loaderUtil.hideModalLoader();
+            flux.refreshKendoGrid({gridId : gridId});
+
         }
     },
     onCloseRoleButtonClick : function (event)
@@ -921,11 +976,11 @@ var userManagement =
         }
     },
     renderFormUserRole: function (response) {
-        if (response.json && response.json.data) {
-            let userData = response.json.data;
+        if (response.json && (response.json.data || response.json.role || response.json.roleName)) {
+            let userData = response.json.data || response.json;
 
-            $("input[name='roleName']").val(userData.role);
-            $("input[name='description']").val(userData.description);
+            $("input[name='roleName']").val(userData.roleName || userData.role || "");
+            $("input[name='description']").val(userData.description || "");
 
             let gridElement = $("#editPermissionsGrid");
             let existingGrid = gridElement.data("kendoGrid");
@@ -936,11 +991,13 @@ var userManagement =
                 gridElement.empty();
             }
 
-            const permissions = userData.roleFeaturePermissions || [];
+            const permissions = Array.isArray(userData.roleFeaturePermissions) ? userData.roleFeaturePermissions : (Array.isArray(userData.permissions) ? userData.permissions : []);
             const filteredPermissions = permissions.map(permission => ({
-                feature: permission.feature.name,
-                read: permission.readPermission || false,
-                write: permission.writePermission || false
+                id: permission.id || permission.featureId,
+                featureId: permission.featureId || permission.id,
+                feature: (permission.feature && permission.feature.name) ? permission.feature.name : (permission.featureName || permission.feature || ""),
+                read: permission.readPermission || permission.read || false,
+                write: permission.writePermission || permission.write || false
             }));
 
             // Initialize new grid
@@ -949,7 +1006,9 @@ var userManagement =
                     data: filteredPermissions,
                     schema: {
                         model: {
+                            id: "id",
                             fields: {
+                                id: { type: "number" },
                                 feature: { type: "string" },
                                 read: { type: "boolean" },
                                 write: { type: "boolean" }
@@ -959,7 +1018,7 @@ var userManagement =
                     pageSize: 8
                 },
                 pageable: true,
-                editable: false, // Prevents unintended UI re-renders
+                editable: false,
                 columns: [
                     { field: "feature", title: "Feature Name", width: "50%" },
                     {
@@ -967,7 +1026,7 @@ var userManagement =
                         title: "Read",
                         width: "25%",
                         template: function (dataItem) {
-                            return `<input type="checkbox" class="read-checkbox" data-uid="${dataItem.uid}" ${dataItem.read ? 'checked' : ''} style="transform: scale(1.5); opacity:1;" />`;
+                            return `<input type="checkbox" class="read-checkbox" data-id="${dataItem.id}" ${dataItem.read ? 'checked' : ''} style="transform: scale(1.5); opacity:1;" />`;
                         }
                     },
                     {
@@ -975,7 +1034,7 @@ var userManagement =
                         title: "Write",
                         width: "25%",
                         template: function (dataItem) {
-                            return `<input type="checkbox" class="write-checkbox" data-uid="${dataItem.uid}" ${dataItem.write ? 'checked' : ''} style="transform: scale(1.5); opacity:1;" />`;
+                            return `<input type="checkbox" class="write-checkbox" data-id="${dataItem.id}" ${dataItem.write ? 'checked' : ''} style="transform: scale(1.5); opacity:1;" />`;
                         }
                     }
                 ]
@@ -1002,15 +1061,15 @@ var userManagement =
 
                     if (isReadCheckbox) {
                         dataItem.set("read", checked);
+                        if (!checked) {
+                            dataItem.set("write", false);
+                            row.find(".write-checkbox").prop("checked", false);
+                        }
                     }
 
-                    grid.refresh(); // Ensure UI updates properly
-
-                    console.log(`Updated ${isWriteCheckbox ? "Write" : "Read"} for ${dataItem.feature} to ${checked}`);
+                    grid.refresh();
                 }
             });
-
-            console.log("Grid DataSource1:", gridElement.data("kendoGrid").dataSource);
         }
     }
 };

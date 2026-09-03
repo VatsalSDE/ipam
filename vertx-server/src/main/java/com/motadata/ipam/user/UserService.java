@@ -291,8 +291,11 @@ public class UserService {
 
         }
 
-        return mysqlPool.preparedQuery(DbQueries.DELETE_USER_BY_ID)
+        // Unlink foreign key references before deleting user to avoid FK error 1451
+        return mysqlPool.preparedQuery("UPDATE event SET done_by_id = NULL WHERE done_by_id = ?")
                 .execute(Tuple.of(userId))
+                .compose(v -> mysqlPool.preparedQuery("DELETE FROM forgot_password WHERE user_id = ?").execute(Tuple.of(userId)))
+                .compose(v -> mysqlPool.preparedQuery(DbQueries.DELETE_USER_BY_ID).execute(Tuple.of(userId)))
                 .map(res -> {
 
                     JsonObject result = new JsonObject();
@@ -343,6 +346,53 @@ public class UserService {
                     }
 
                     return roles;
+
+                });
+
+    }
+
+    /**
+     * Retrieves a specific user role with its feature permissions.
+     */
+    public Future<JsonObject> getRoleById(Long roleId) {
+
+        if (roleId == null || roleId <= 0) {
+
+            return Future.failedFuture("Invalid role ID");
+
+        }
+
+        return mysqlPool.preparedQuery(DbQueries.FIND_USER_ROLE_BY_ID)
+                .execute(Tuple.of(roleId))
+                .compose(rows -> {
+
+                    if (!rows.iterator().hasNext()) {
+
+                        return Future.failedFuture("Role not found with ID: " + roleId);
+
+                    }
+
+                    Row row = rows.iterator().next();
+
+                    JsonObject roleObj = new JsonObject();
+
+                    roleObj.put("id", DbUtil.getLong(row, "id"));
+
+                    roleObj.put("role", DbUtil.getString(row, "roleName"));
+
+                    roleObj.put("roleName", DbUtil.getString(row, "roleName"));
+
+                    roleObj.put("description", DbUtil.getString(row, "description"));
+
+                    return getRolePermissions(roleId).map(permissions -> {
+
+                        roleObj.put("roleFeaturePermissions", permissions);
+
+                        roleObj.put("permissions", permissions);
+
+                        return roleObj;
+
+                    });
 
                 });
 
@@ -452,33 +502,73 @@ public class UserService {
 
                     Long newRoleId = res.property(io.vertx.mysqlclient.MySQLClient.LAST_INSERTED_ID);
 
-                    if (vertx != null && vertx.eventBus() != null) {
+                    JsonArray permissions = payload.getJsonArray("permissions");
 
-                        vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
-                                .put("eventType", "ROLE_CREATED")
-                                .put("eventContext", "Created new user role '" + finalRoleName + "'")
-                                .put("severity", 1));
+                    Future<Void> permFuture = Future.succeededFuture();
+
+                    if (permissions != null && !permissions.isEmpty()) {
+
+                        java.util.List<Tuple> batch = new java.util.ArrayList<>();
+
+                        for (int i = 0; i < permissions.size(); i++) {
+
+                            JsonObject p = permissions.getJsonObject(i);
+
+                            if (p != null) {
+
+                                Long featureId = p.getLong("id", (long) (i + 1));
+
+                                boolean read = p.getBoolean("read", false);
+
+                                boolean write = p.getBoolean("write", false);
+
+                                batch.add(Tuple.of(newRoleId, featureId, read ? 1 : 0, write ? 1 : 0));
+
+                            }
+
+                        }
+
+                        if (!batch.isEmpty()) {
+
+                            permFuture = mysqlPool.preparedQuery(DbQueries.INSERT_ROLE_PERMISSION)
+                                    .executeBatch(batch)
+                                    .mapEmpty();
+
+                        }
 
                     }
 
-                    JsonObject created = new JsonObject();
+                    return permFuture.map(v -> {
 
-                    created.put("id", newRoleId);
+                        if (vertx != null && vertx.eventBus() != null) {
 
-                    created.put("role", finalRoleName);
+                            vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
+                                    .put("eventType", "ROLE_CREATED")
+                                    .put("eventContext", "Created new user role '" + finalRoleName + "'")
+                                    .put("severity", 1));
 
-                    created.put("roleName", finalRoleName);
+                        }
 
-                    created.put("description", description);
+                        JsonObject created = new JsonObject();
 
-                    return Future.succeededFuture(created);
+                        created.put("id", newRoleId);
+
+                        created.put("role", finalRoleName);
+
+                        created.put("roleName", finalRoleName);
+
+                        created.put("description", description);
+
+                        return created;
+
+                    });
 
                 });
 
     }
 
     /**
-     * Updates an existing user role.
+     * Updates an existing user role and its feature permissions.
      */
     public Future<JsonObject> updateRole(Long roleId, JsonObject payload) {
 
@@ -504,33 +594,81 @@ public class UserService {
                 .execute(params)
                 .compose(res -> {
 
-                    if (vertx != null && vertx.eventBus() != null) {
+                    JsonArray permissions = payload.getJsonArray("permissions");
 
-                        vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
-                                .put("eventType", "ROLE_UPDATED")
-                                .put("eventContext", "Updated role '" + roleName + "' (ID: " + roleId + ")")
-                                .put("severity", 1));
+                    Future<Void> permFuture = Future.succeededFuture();
+
+                    if (permissions != null) {
+
+                        permFuture = mysqlPool.preparedQuery(DbQueries.DELETE_ROLE_PERMISSIONS)
+                                .execute(Tuple.of(roleId))
+                                .compose(delRes -> {
+
+                                    java.util.List<Tuple> batch = new java.util.ArrayList<>();
+
+                                    for (int i = 0; i < permissions.size(); i++) {
+
+                                        JsonObject p = permissions.getJsonObject(i);
+
+                                        if (p != null) {
+
+                                            Long featureId = p.getLong("id", (long) (i + 1));
+
+                                            boolean read = p.getBoolean("read", false);
+
+                                            boolean write = p.getBoolean("write", false);
+
+                                            batch.add(Tuple.of(roleId, featureId, read ? 1 : 0, write ? 1 : 0));
+
+                                        }
+
+                                    }
+
+                                    if (!batch.isEmpty()) {
+
+                                        return mysqlPool.preparedQuery(DbQueries.INSERT_ROLE_PERMISSION)
+                                                .executeBatch(batch)
+                                                .mapEmpty();
+
+                                    }
+
+                                    return Future.succeededFuture();
+
+                                });
 
                     }
 
-                    JsonObject updated = new JsonObject();
+                    return permFuture.map(v -> {
 
-                    updated.put("id", roleId);
+                        if (vertx != null && vertx.eventBus() != null) {
 
-                    updated.put("role", roleName);
+                            vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
+                                    .put("eventType", "ROLE_UPDATED")
+                                    .put("eventContext", "Updated role '" + roleName + "' (ID: " + roleId + ")")
+                                    .put("severity", 1));
 
-                    updated.put("roleName", roleName);
+                        }
 
-                    updated.put("description", description);
+                        JsonObject updated = new JsonObject();
 
-                    return Future.succeededFuture(updated);
+                        updated.put("id", roleId);
+
+                        updated.put("role", roleName);
+
+                        updated.put("roleName", roleName);
+
+                        updated.put("description", description);
+
+                        return updated;
+
+                    });
 
                 });
 
     }
 
     /**
-     * Deletes a user role (guards against deleting role 1 / ROLE_ADMIN).
+     * Deletes a user role safely (guards against deleting role 1 / ROLE_ADMIN, unlinks permissions).
      */
     public Future<JsonObject> deleteRole(Long roleId) {
 
@@ -546,26 +684,47 @@ public class UserService {
 
         }
 
-        return mysqlPool.preparedQuery(DbQueries.DELETE_USER_ROLE)
+        return mysqlPool.preparedQuery("SELECT COUNT(*) as userCount FROM user WHERE user_role_id_id = ?")
                 .execute(Tuple.of(roleId))
-                .map(res -> {
+                .compose(rows -> {
 
-                    if (vertx != null && vertx.eventBus() != null) {
+                    long count = 0;
 
-                        vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
-                                .put("eventType", "ROLE_DELETED")
-                                .put("eventContext", "Deleted user role ID " + roleId)
-                                .put("severity", 2));
+                    if (rows.iterator().hasNext()) {
+
+                        count = DbUtil.getLongOrDefault(rows.iterator().next(), "userCount", 0L);
 
                     }
 
-                    JsonObject result = new JsonObject();
+                    if (count > 0) {
 
-                    result.put("deleted", true);
+                        return Future.failedFuture("Cannot delete role because " + count + " active user(s) are assigned to it");
 
-                    result.put("roleId", roleId);
+                    }
 
-                    return result;
+                    return mysqlPool.preparedQuery(DbQueries.DELETE_ROLE_PERMISSIONS)
+                            .execute(Tuple.of(roleId))
+                            .compose(delPerms -> mysqlPool.preparedQuery(DbQueries.DELETE_USER_ROLE).execute(Tuple.of(roleId)))
+                            .map(res -> {
+
+                                if (vertx != null && vertx.eventBus() != null) {
+
+                                    vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
+                                            .put("eventType", "ROLE_DELETED")
+                                            .put("eventContext", "Deleted user role ID " + roleId)
+                                            .put("severity", 2));
+
+                                }
+
+                                JsonObject result = new JsonObject();
+
+                                result.put("deleted", true);
+
+                                result.put("roleId", roleId);
+
+                                return result;
+
+                            });
 
                 });
 

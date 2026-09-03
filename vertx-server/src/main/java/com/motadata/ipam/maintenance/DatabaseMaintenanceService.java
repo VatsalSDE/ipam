@@ -23,6 +23,14 @@ import org.slf4j.Logger;
 
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+
+import java.time.LocalDateTime;
+
+import java.time.format.DateTimeFormatter;
+
+import java.util.concurrent.TimeUnit;
+
 /**
  * Enterprise Database Maintenance & Data Retention Engine.
  * Manages audit retention periods, old data pruning (events, alerts, change logs),
@@ -128,27 +136,103 @@ public class DatabaseMaintenanceService {
 
         }
 
-        int maintainedDays = payload.getInteger("maintainedDays", 30);
+        Integer maintainedDays = null;
 
-        if (maintainedDays <= 0) {
+        if (payload.containsKey("maintainedDays")) {
 
-            maintainedDays = 30;
+            Object md = payload.getValue("maintainedDays");
+
+            if (md instanceof Number) {
+
+                maintainedDays = ((Number) md).intValue();
+
+            } else if (md instanceof String && !((String) md).isBlank()) {
+
+                try {
+
+                    maintainedDays = Integer.parseInt(((String) md).trim());
+
+                } catch (Exception ignored) {}
+
+            }
+
+            if (maintainedDays != null && maintainedDays <= 0) {
+
+                maintainedDays = 30;
+
+            }
 
         }
 
-        String rawStatus = payload.getString("status", "enable");
+        String dbStatus = null;
 
-        String dbStatus = ("enable".equalsIgnoreCase(rawStatus) || "1".equals(rawStatus)) ? "1" : "0";
+        if (payload.containsKey("status")) {
 
-        boolean scheduleStatus = payload.getBoolean("scheduleStatus", false);
+            Object st = payload.getValue("status");
 
-        int scheduleBit = scheduleStatus ? 1 : 0;
+            if (st != null) {
 
-        final int finalDays = maintainedDays;
+                String rawStatus = st.toString();
 
-        final String finalStatus = "1".equals(dbStatus) ? "enable" : "disable";
+                dbStatus = ("enable".equalsIgnoreCase(rawStatus) || "1".equals(rawStatus)) ? "1" : "0";
 
-        Tuple params = Tuple.of(finalDays, dbStatus, scheduleBit);
+            }
+
+        }
+
+        Integer scheduleBit = null;
+
+        if (payload.containsKey("scheduleStatus")) {
+
+            Object ss = payload.getValue("scheduleStatus");
+
+            if (ss instanceof Boolean) {
+
+                scheduleBit = ((Boolean) ss) ? 1 : 0;
+
+            } else if (ss instanceof Number) {
+
+                scheduleBit = (((Number) ss).intValue() == 1) ? 1 : 0;
+
+            } else if (ss instanceof String) {
+
+                boolean b = "true".equalsIgnoreCase((String) ss) || "1".equals(ss) || "enable".equalsIgnoreCase((String) ss);
+
+                scheduleBit = b ? 1 : 0;
+
+            }
+
+        }
+
+        String backupPath = payload.getString("backupPath");
+
+        String duration = payload.getString("duration");
+
+        Integer scheduleHour = null;
+
+        if (payload.containsKey("scheduleHour")) {
+
+            Object sh = payload.getValue("scheduleHour");
+
+            if (sh instanceof Number) {
+
+                scheduleHour = ((Number) sh).intValue();
+
+            } else if (sh instanceof String && !((String) sh).isBlank()) {
+
+                try {
+
+                    scheduleHour = Integer.parseInt(((String) sh).trim());
+
+                } catch (Exception ignored) {}
+
+            }
+
+        }
+
+        final Integer finalDays = maintainedDays;
+
+        Tuple params = Tuple.of(maintainedDays, dbStatus, scheduleBit, backupPath, duration, scheduleHour);
 
         return mysqlPool.preparedQuery(DbQueries.UPDATE_DATABASE_MAINTENANCE)
                 .execute(params)
@@ -156,9 +240,23 @@ public class DatabaseMaintenanceService {
 
                     if (vertx != null && vertx.eventBus() != null) {
 
+                        String context = "Updated database maintenance settings";
+
+                        if (finalDays != null) {
+
+                            context += " (Retention: " + finalDays + " days)";
+
+                        }
+
+                        if (backupPath != null) {
+
+                            context += " (Backup Path: " + backupPath + ")";
+
+                        }
+
                         vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
                                 .put("eventType", "DATABASE_MAINTENANCE_UPDATED")
-                                .put("eventContext", "Updated data retention policy to " + finalDays + " days (Status: " + finalStatus + ")")
+                                .put("eventContext", context)
                                 .put("severity", 1));
 
                     }
@@ -170,7 +268,104 @@ public class DatabaseMaintenanceService {
     }
 
     /**
+     * Executes database backup export to backupPath using non-blocking worker execution.
+     */
+    public Future<JsonObject> runDatabaseBackup(String customPath) {
+
+        return getSettings().compose(settings -> {
+
+            String configuredPath = (customPath != null && !customPath.isBlank())
+                    ? customPath
+                    : settings.getString("backupPath", "/home/vatsal-rathi/Downloads/IPAM/backup");
+
+            if (vertx == null) {
+
+                return Future.failedFuture("Vert.x instance is required to execute background database backup");
+
+            }
+
+            return vertx.executeBlocking(promise -> {
+
+                try {
+
+                    File dir = new File(configuredPath);
+
+                    if (!dir.exists()) {
+
+                        dir.mkdirs();
+
+                    }
+
+                    String timestamp = DateTimeFormatter.ofPattern("yyyy_MM_dd_HH_mm_ss").format(LocalDateTime.now());
+
+                    File backupFile = new File(dir, "DatabaseBackup_" + timestamp + ".sql");
+
+                    ProcessBuilder pb = new ProcessBuilder(
+                            "mysqldump",
+                            "-u", "root",
+                            "-pMind@123",
+                            "ipam",
+                            "--result-file=" + backupFile.getAbsolutePath()
+                    );
+
+                    pb.redirectErrorStream(true);
+
+                    Process process = pb.start();
+
+                    boolean completed = process.waitFor(60, TimeUnit.SECONDS);
+
+                    if (!completed) {
+
+                        process.destroyForcibly();
+
+                        promise.fail("Database backup process timed out after 60 seconds");
+
+                        return;
+
+                    }
+
+                    long sizeBytes = backupFile.exists() ? backupFile.length() : 0L;
+
+                    JsonObject result = new JsonObject();
+
+                    result.put("success", true);
+
+                    result.put("backupFile", backupFile.getAbsolutePath());
+
+                    result.put("sizeBytes", sizeBytes);
+
+                    result.put("timestamp", timestamp);
+
+                    if (vertx != null && vertx.eventBus() != null) {
+
+                        vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
+                                .put("eventType", "DATABASE_BACKUP_COMPLETED")
+                                .put("eventContext", "Database backup saved to " + backupFile.getAbsolutePath() + " (" + sizeBytes + " bytes)")
+                                .put("severity", 1));
+
+                    }
+
+                    logger.info("Database backup completed successfully at: {}", backupFile.getAbsolutePath());
+
+                    promise.complete(result);
+
+                } catch (Exception e) {
+
+                    logger.error("Database backup execution failed: {}", e.getMessage(), e);
+
+                    promise.fail("Database backup failed: " + e.getMessage());
+
+                }
+
+            });
+
+        });
+
+    }
+
+    /**
      * Executes manual or scheduled data retention pruning across events, change logs, and alerts.
+     * Takes an automated safety snapshot before deletion.
      */
     public Future<JsonObject> purgeOldData(int days) {
 
@@ -182,56 +377,74 @@ public class DatabaseMaintenanceService {
 
         final int finalDays = days;
 
-        Future<Integer> purgeEvents = mysqlPool.preparedQuery(DbQueries.PURGE_OLD_EVENTS)
-                .execute(Tuple.of(finalDays))
-                .map(rows -> rows.rowCount());
+        return runDatabaseBackup(null)
+                .recover(backupErr -> {
 
-        Future<Integer> purgeLogs = mysqlPool.preparedQuery(DbQueries.PURGE_OLD_IP_CHANGE_LOGS)
-                .execute(Tuple.of(finalDays))
-                .map(rows -> rows.rowCount());
+                    logger.warn("Pre-purge safety backup was skipped or failed: {}", backupErr.getMessage());
 
-        Future<Integer> purgeAlerts = mysqlPool.preparedQuery(DbQueries.PURGE_OLD_ALERTS)
-                .execute(Tuple.of(finalDays))
-                .map(rows -> rows.rowCount());
+                    return Future.succeededFuture(new JsonObject().put("backupSkipped", true));
 
-        return CompositeFuture.all(purgeEvents, purgeLogs, purgeAlerts)
-                .map(comp -> {
+                })
+                .compose(backupResult -> {
 
-                    int eventsDeleted = comp.resultAt(0);
+                    Future<Integer> purgeEvents = mysqlPool.preparedQuery(DbQueries.PURGE_OLD_EVENTS)
+                            .execute(Tuple.of(finalDays))
+                            .map(rows -> rows.rowCount());
 
-                    int logsDeleted = comp.resultAt(1);
+                    Future<Integer> purgeLogs = mysqlPool.preparedQuery(DbQueries.PURGE_OLD_IP_CHANGE_LOGS)
+                            .execute(Tuple.of(finalDays))
+                            .map(rows -> rows.rowCount());
 
-                    int alertsDeleted = comp.resultAt(2);
+                    Future<Integer> purgeAlerts = mysqlPool.preparedQuery(DbQueries.PURGE_OLD_ALERTS)
+                            .execute(Tuple.of(finalDays))
+                            .map(rows -> rows.rowCount());
 
-                    int totalDeleted = eventsDeleted + logsDeleted + alertsDeleted;
+                    return CompositeFuture.all(purgeEvents, purgeLogs, purgeAlerts)
+                            .map(comp -> {
 
-                    logger.info("Data retention cleanup completed: purged {} events, {} change logs, {} alerts older than {} days",
-                            eventsDeleted, logsDeleted, alertsDeleted, finalDays);
+                                int eventsDeleted = comp.resultAt(0);
 
-                    JsonObject result = new JsonObject();
+                                int logsDeleted = comp.resultAt(1);
 
-                    result.put("purged", true);
+                                int alertsDeleted = comp.resultAt(2);
 
-                    result.put("maintainedDays", finalDays);
+                                int totalDeleted = eventsDeleted + logsDeleted + alertsDeleted;
 
-                    result.put("eventsPurged", eventsDeleted);
+                                logger.info("Data retention cleanup completed: purged {} events, {} change logs, {} alerts older than {} days",
+                                        eventsDeleted, logsDeleted, alertsDeleted, finalDays);
 
-                    result.put("logsPurged", logsDeleted);
+                                JsonObject result = new JsonObject();
 
-                    result.put("alertsPurged", alertsDeleted);
+                                result.put("purged", true);
 
-                    result.put("totalPurged", totalDeleted);
+                                result.put("maintainedDays", finalDays);
 
-                    if (vertx != null && vertx.eventBus() != null) {
+                                result.put("eventsPurged", eventsDeleted);
 
-                        vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
-                                .put("eventType", "DATA_RETENTION_PURGE")
-                                .put("eventContext", "Data retention cleanup purged " + totalDeleted + " records older than " + finalDays + " days")
-                                .put("severity", 1));
+                                result.put("logsPurged", logsDeleted);
 
-                    }
+                                result.put("alertsPurged", alertsDeleted);
 
-                    return result;
+                                result.put("totalPurged", totalDeleted);
+
+                                if (backupResult.containsKey("backupFile")) {
+
+                                    result.put("safetyBackupFile", backupResult.getString("backupFile"));
+
+                                }
+
+                                if (vertx != null && vertx.eventBus() != null) {
+
+                                    vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
+                                            .put("eventType", "DATA_RETENTION_PURGE")
+                                            .put("eventContext", "Data retention cleanup purged " + totalDeleted + " records older than " + finalDays + " days")
+                                            .put("severity", 1));
+
+                                }
+
+                                return result;
+
+                            });
 
                 });
 
