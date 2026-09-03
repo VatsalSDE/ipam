@@ -14,6 +14,10 @@ var topManager =
 
         flux.bindKendoButtonClickEvent({element: 'header li a'}, topManager.onTopButtonClick);
 
+        topManager.applyRoleBasedVisibility();
+
+        topManager.startAlertStream();
+
         var globalSearch = $("#globalSearch");
 
         globalSearch.empty();
@@ -25,6 +29,118 @@ var topManager =
                 topManager.onGlobalSearchClick(event);
             }
         });
+    },
+
+    updateAlertBadge : function (newTotal)
+    {
+        var token = appManager.getCookie("token");
+        if (!token) return;
+
+        if (newTotal !== undefined) {
+            var badge = $("#alertNotificationBadge");
+            if (badge.length === 0) {
+                $('#alertsMenu a').css('position', 'relative').append('<span id="alertNotificationBadge" class="badge badge-danger" style="position: absolute; top: -5px; right: -5px; font-size: 10px; background: #FF4D4D; color: white; border-radius: 10px; padding: 2px 6px; display: none;"></span>');
+                badge = $("#alertNotificationBadge");
+            }
+            if (newTotal > 0) {
+                badge.text(newTotal > 99 ? '99+' : newTotal).show();
+            } else {
+                badge.hide();
+            }
+            return;
+        }
+
+        $.ajax({
+            url: '/api/alerts?activeOnly=true&limit=1',
+            type: 'GET',
+            headers: { 'Authorization': 'Bearer ' + token },
+            success: function(res) {
+                var total = (res && res.data && res.data.total !== undefined) ? res.data.total : (res && res.total !== undefined ? res.total : 0);
+                var badge = $("#alertNotificationBadge");
+                if (badge.length === 0) {
+                    $('#alertsMenu a').css('position', 'relative').append('<span id="alertNotificationBadge" class="badge badge-danger" style="position: absolute; top: -5px; right: -5px; font-size: 10px; background: #FF4D4D; color: white; border-radius: 10px; padding: 2px 6px; display: none;"></span>');
+                    badge = $("#alertNotificationBadge");
+                }
+                if (total > 0) {
+                    badge.text(total > 99 ? '99+' : total).show();
+                } else {
+                    badge.hide();
+                }
+            }
+        });
+    },
+
+    startAlertStream : function ()
+    {
+        // Initial badge count
+        topManager.updateAlertBadge();
+
+        // Connect Server-Sent Events stream for instant real-time push
+        try {
+            if (window.EventSource) {
+                var token = appManager.getCookie("token");
+                var streamUrl = '/api/alerts/stream' + (token ? ('?token=' + encodeURIComponent(token)) : '');
+                var source = new EventSource(streamUrl);
+
+                source.addEventListener('alert', function(e) {
+                    try {
+                        var alert = JSON.parse(e.data);
+                        // 1. Show notification toast popup on ANY page
+                        if (typeof notification !== 'undefined' && notification.showNotification) {
+                            notification.showNotification({
+                                notificationTitle: "⚠️ Alert: " + (alert.message || alert.alertType || "Network Alert"),
+                                notificationType: "warning"
+                            });
+                        }
+                        // 2. Increment Bell Counter Badge
+                        topManager.updateAlertBadge();
+
+                        // 3. If user is currently looking at the Alerts page, auto-reload table
+                        if (window.alerts && $("#alertsTable").length && $("#alertsTable").is(":visible")) {
+                            var filter = $("#alertFilter").data("kendoDropDownList") ? $("#alertFilter").data("kendoDropDownList").value() : "live";
+                            alerts.renderAlertsGrid({ alertFilter: filter });
+                        }
+                    } catch (err) {
+                        console.error("Error processing alert stream event:", err);
+                    }
+                });
+
+                source.addEventListener('alert_cleared', function() {
+                    topManager.updateAlertBadge();
+                    if (window.alerts && $("#alertsTable").length && $("#alertsTable").is(":visible")) {
+                        var filter = $("#alertFilter").data("kendoDropDownList") ? $("#alertFilter").data("kendoDropDownList").value() : "live";
+                        alerts.renderAlertsGrid({ alertFilter: filter });
+                    }
+                });
+
+                source.onerror = function() {
+                    // Browser automatically reconnects SSE streams
+                };
+            }
+        } catch (e) {
+            console.warn("SSE not available, using periodic poller fallback:", e);
+        }
+
+        // Lightweight background fallback poller every 30 seconds
+        if (!topManager._alertPollerInterval) {
+            topManager._alertPollerInterval = setInterval(function() {
+                topManager.updateAlertBadge();
+            }, 30000);
+        }
+    },
+
+    applyRoleBasedVisibility : function ()
+    {
+        var userRole = appManager.getCookie("userRole") || "ROLE_ADMIN";
+        var isAdmin = (userRole === "ROLE_ADMIN" || userRole === "ADMIN");
+        if (!isAdmin) {
+            $('#settingsMenu').hide();
+            $('#rogueDetectionMenu').hide();
+            $('#alertsMenu').hide();
+            $('#eventLogMenu').hide();
+        } else {
+            $('#settingsMenu, #rogueDetectionMenu, #alertsMenu, #eventLogMenu').show();
+        }
     },
 
     // --------------------------------------------------------------------------------Search value entered and load global search grid------------------------------------------------------------------------------------------//

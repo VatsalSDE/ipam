@@ -28,6 +28,10 @@ public class EventRouter {
                 .handler(rbacAuthHandler.requirePermission("PERM_EVENT NOTIFICATIONS_READ"))
                 .handler(handler::listTop);
 
+        router.get("/api/event/summary12m")
+                .handler(rbacAuthHandler.requirePermission("PERM_EVENT NOTIFICATIONS_READ"))
+                .handler(handler::summary12m);
+
     }
 
 }

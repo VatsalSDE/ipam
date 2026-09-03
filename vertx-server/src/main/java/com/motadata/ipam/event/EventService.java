@@ -53,7 +53,7 @@ public class EventService {
 
                     String eventContext = body.getString("eventContext", "");
 
-                    int severity = body.getInteger("severity", 1);
+                    int severity = body.getInteger("severity", 3);
 
                     Long userId = body.getLong("userId", null);
 
@@ -172,6 +172,77 @@ public class EventService {
     }
 
     /**
+     * Aggregates 12-month event summary for Dashboard sparkline.
+     */
+    public Future<JsonArray> get12MonthEventSummary() {
+
+        java.time.YearMonth current = java.time.YearMonth.now();
+        java.time.format.DateTimeFormatter ymFormatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM");
+        java.time.format.DateTimeFormatter displayFormatter = java.time.format.DateTimeFormatter.ofPattern("MMM");
+
+        java.util.Map<String, JsonObject> monthMap = new java.util.LinkedHashMap<>();
+
+        for (int i = 11; i >= 0; i--) {
+
+            java.time.YearMonth ym = current.minusMonths(i);
+
+            String ymKey = ym.format(ymFormatter);
+
+            String displayName = ym.format(displayFormatter);
+
+            monthMap.put(ymKey, new JsonObject()
+                    .put("name", displayName)
+                    .put("monthKey", ymKey)
+                    .put("count", 0)
+                    .put("severity", 3)
+                    .put("criticalCount", 0)
+                    .put("warningCount", 0)
+                    .put("infoCount", 0)
+                    .put("color", "#00b3ee"));
+
+        }
+
+        return mysqlPool.preparedQuery(DbQueries.GET_12_MONTH_EVENT_SUMMARY).execute()
+                .map(rows -> {
+
+                    for (Row r : rows) {
+
+                        String key = DbUtil.getString(r, "monthName");
+
+                        if (monthMap.containsKey(key)) {
+
+                            int sev = DbUtil.getIntOrDefault(r, "worstSeverity", 3);
+
+                            String color = (sev == 1) ? "#FF0000" : (sev == 2 ? "#FFA31A" : "#00b3ee");
+
+                            JsonObject item = monthMap.get(key);
+
+                            item.put("count", DbUtil.getLong(r, "totalEvents"))
+                                    .put("severity", sev)
+                                    .put("criticalCount", DbUtil.getLong(r, "criticalCount"))
+                                    .put("warningCount", DbUtil.getLong(r, "warningCount"))
+                                    .put("infoCount", DbUtil.getLong(r, "infoCount"))
+                                    .put("color", color);
+
+                        }
+
+                    }
+
+                    JsonArray result = new JsonArray();
+
+                    for (JsonObject val : monthMap.values()) {
+
+                        result.add(val);
+
+                    }
+
+                    return result;
+
+                });
+
+    }
+
+    /**
      * Logs an audit event into the database asynchronously with user ID.
      */
     public Future<Void> logEvent(String eventType, String eventContext, int severity, Long userId) {
@@ -262,7 +333,7 @@ public class EventService {
 
         if (userName == null || userName.isBlank()) {
 
-            userName = "admin";
+            userName = "System";
 
         }
 

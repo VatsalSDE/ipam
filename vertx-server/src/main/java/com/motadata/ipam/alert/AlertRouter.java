@@ -18,19 +18,26 @@ public class  AlertRouter {
 
         AlertService alertService = new AlertService(mysqlPool, vertx);
 
-        AlertHandler handler = new AlertHandler(alertService);
+        AlertHandler handler = new AlertHandler(alertService, vertx);
+
+        router.get("/api/alerts/stream")
+                .handler(handler::streamAlerts);
 
         router.get("/api/alerts")
                 .handler(rbacAuthHandler.requirePermission("PERM_ALERTS_READ"))
                 .handler(handler::list);
 
-        router.post("/api/alerts")
-                .handler(rbacAuthHandler.requirePermission("PERM_ALERTS_WRITE"))
-                .handler(handler::create);
-
         router.put("/api/alerts/:id/clear")
                 .handler(rbacAuthHandler.requirePermission("PERM_ALERTS_WRITE"))
                 .handler(handler::clear);
+
+        router.get("/api/alerts/config")
+                .handler(rbacAuthHandler.requirePermission("PERM_SETTINGS_READ"))
+                .handler(handler::getConfig);
+
+        router.put("/api/alerts/config")
+                .handler(rbacAuthHandler.requirePermission("PERM_SETTINGS_WRITE"))
+                .handler(handler::updateConfig);
 
         router.delete("/api/alerts/:id")
                 .handler(rbacAuthHandler.requirePermission("PERM_ALERTS_WRITE"))

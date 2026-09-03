@@ -59,15 +59,43 @@ public class AlertService {
 
                     String subnet = body.getString("subnet", "");
 
-                    publishAlert(subnetId, alertType, message, subnet)
-                            .onSuccess(v -> {
+                    getAlertConfiguration().onSuccess(config -> {
 
-                                vertx.eventBus().publish(ADDRESS_ALERT_STREAM, body);
+                        boolean isAllowed = isAlertRuleEnabled(config, alertType, body);
 
-                                msg.reply(new JsonObject().put("status", "PUBLISHED"));
+                        if (!isAllowed) {
 
-                            })
-                            .onFailure(err -> msg.fail(500, err.getMessage()));
+                            logger.info("Alert suppressed by user configuration: type={}", alertType);
+
+                            msg.reply(new JsonObject().put("status", "SUPPRESSED_BY_CONFIG"));
+
+                            return;
+
+                        }
+
+                        publishAlert(subnetId, alertType, message, subnet)
+                                .onSuccess(v -> {
+
+                                    vertx.eventBus().publish(ADDRESS_ALERT_STREAM, body);
+
+                                    msg.reply(new JsonObject().put("status", "PUBLISHED"));
+
+                                })
+                                .onFailure(err -> msg.fail(500, err.getMessage()));
+
+                    }).onFailure(err -> {
+
+                        publishAlert(subnetId, alertType, message, subnet)
+                                .onSuccess(v -> {
+
+                                    vertx.eventBus().publish(ADDRESS_ALERT_STREAM, body);
+
+                                    msg.reply(new JsonObject().put("status", "PUBLISHED"));
+
+                                })
+                                .onFailure(e -> msg.fail(500, e.getMessage()));
+
+                    });
 
                 }
 
@@ -187,6 +215,111 @@ public class AlertService {
 
     }
 
+    /**
+     * Retrieves current alert configuration with default fallbacks.
+     */
+    public Future<JsonObject> getAlertConfiguration() {
+
+        return mysqlPool.preparedQuery(DbQueries.GET_ALERT_CONFIG).execute()
+                .map(rows -> {
+
+                    JsonObject config = new JsonObject();
+
+                    // Apply standard system defaults
+                    config.put("ipUtilization", "80");
+                    config.put("ipUtilizationFlag", true);
+                    config.put("ipUtilizationBelow", "20");
+                    config.put("ipUtilizationBelowFlag", false);
+                    config.put("macIpChangeFlag", false);
+                    config.put("macIpChange", "");
+                    config.put("rogueDetection", false);
+                    config.put("ipStateChange", false);
+                    config.put("reverseLookupFailed", false);
+                    config.put("forwardLookupFailed", false);
+                    config.put("forwardLookupMismatch", false);
+                    config.put("ipReservationChange", false);
+                    config.put("ipConflict", true);
+                    config.put("newSubnetsDiscovered", true);
+
+                    for (Row row : rows) {
+
+                        String key = DbUtil.getString(row, "alertKey");
+
+                        String val = DbUtil.getString(row, "alertValue");
+
+                        if (key != null && val != null) {
+
+                            if ("true".equalsIgnoreCase(val) || "false".equalsIgnoreCase(val)) {
+
+                                config.put(key, Boolean.parseBoolean(val));
+
+                            } else {
+
+                                config.put(key, val);
+
+                            }
+
+                        }
+
+                    }
+
+                    return config;
+
+                })
+                .recover(err -> {
+
+                    logger.warn("Could not load alert configuration from database, using defaults: {}", err.getMessage());
+
+                    JsonObject defaults = new JsonObject()
+                            .put("ipUtilization", "80")
+                            .put("ipUtilizationFlag", true)
+                            .put("ipUtilizationBelow", "20")
+                            .put("ipUtilizationBelowFlag", false)
+                            .put("macIpChangeFlag", false)
+                            .put("macIpChange", "")
+                            .put("rogueDetection", false)
+                            .put("ipStateChange", false)
+                            .put("reverseLookupFailed", false)
+                            .put("forwardLookupFailed", false)
+                            .put("forwardLookupMismatch", false)
+                            .put("ipReservationChange", false)
+                            .put("ipConflict", true)
+                            .put("newSubnetsDiscovered", true);
+
+                    return Future.succeededFuture(defaults);
+
+                });
+
+    }
+
+    /**
+     * Updates alert configuration in the alert table.
+     */
+    public Future<JsonObject> updateAlertConfiguration(JsonObject payload) {
+
+        if (payload == null || payload.isEmpty()) {
+
+            return Future.failedFuture("Configuration payload is required");
+
+        }
+
+        java.util.List<Tuple> batch = new java.util.ArrayList<>();
+
+        for (String key : payload.fieldNames()) {
+
+            Object val = payload.getValue(key);
+
+            String valStr = (val != null) ? String.valueOf(val) : "";
+
+            batch.add(Tuple.of(key, valStr));
+
+        }
+
+        return mysqlPool.preparedQuery(DbQueries.UPSERT_ALERT_CONFIG).executeBatch(batch)
+                .compose(v -> getAlertConfiguration());
+
+    }
+
     private JsonObject mapAlertRow(Row row) {
 
         JsonObject alert = new JsonObject();
@@ -206,6 +339,101 @@ public class AlertService {
         alert.put("status", DbUtil.getBoolean(row, "status"));
 
         return alert;
+
+    }
+
+    private boolean isAlertRuleEnabled(JsonObject config, String alertType, JsonObject body) {
+
+        if (config == null || alertType == null) {
+
+            return true;
+
+        }
+
+        switch (alertType.toUpperCase()) {
+
+            case "HIGH_UTILIZATION":
+            case "IP_UTILIZATION": {
+
+                Object flag = config.getValue("ipUtilizationFlag", true);
+
+                boolean enabled = "true".equalsIgnoreCase(String.valueOf(flag)) || Boolean.TRUE.equals(flag);
+
+                if (!enabled) return false;
+
+                int threshold = 80;
+
+                try {
+
+                    threshold = Integer.parseInt(String.valueOf(config.getValue("ipUtilization", "80")));
+
+                } catch (Exception ignored) {}
+
+                int currentPct = body.getInteger("percentage", 100);
+
+                return currentPct >= threshold;
+
+            }
+
+            case "LOW_UTILIZATION":
+            case "IP_UTILIZATION_BELOW": {
+
+                Object flag = config.getValue("ipUtilizationBelowFlag", false);
+
+                boolean enabled = "true".equalsIgnoreCase(String.valueOf(flag)) || Boolean.TRUE.equals(flag);
+
+                if (!enabled) return false;
+
+                int threshold = 20;
+
+                try {
+
+                    threshold = Integer.parseInt(String.valueOf(config.getValue("ipUtilizationBelow", "20")));
+
+                } catch (Exception ignored) {}
+
+                int currentPct = body.getInteger("percentage", 0);
+
+                return currentPct <= threshold;
+
+            }
+
+            case "ROGUE_DETECTION": {
+
+                Object flag = config.getValue("rogueDetection", true);
+
+                return "true".equalsIgnoreCase(String.valueOf(flag)) || Boolean.TRUE.equals(flag);
+
+            }
+
+            case "IP_CONFLICT": {
+
+                Object flag = config.getValue("ipConflict", true);
+
+                return "true".equalsIgnoreCase(String.valueOf(flag)) || Boolean.TRUE.equals(flag);
+
+            }
+
+            case "IP_STATE_CHANGE": {
+
+                Object flag = config.getValue("ipStateChange", false);
+
+                return "true".equalsIgnoreCase(String.valueOf(flag)) || Boolean.TRUE.equals(flag);
+
+            }
+
+            case "NEW_SUBNETS_DISCOVERED": {
+
+                Object flag = config.getValue("newSubnetsDiscovered", true);
+
+                return "true".equalsIgnoreCase(String.valueOf(flag)) || Boolean.TRUE.equals(flag);
+
+            }
+
+            default:
+                return true;
+
+        }
 
     }
 

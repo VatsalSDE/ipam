@@ -75,26 +75,67 @@ var alerts = {
                 model: {
                     id: "id",
                     fields: {
-                        alertType:{type:'string'},
-                        message:{type:'string'},
-                        subnet: {type: "string"},
-                        timestamp: {type: "string"},
+                        id: { type: "number" },
+                        alertType: { type: "string" },
+                        message: { type: "string" },
+                        subnet: { type: "string" },
+                        timestamp: { type: "string" },
+                        status: { type: "boolean" }
                     }
                 }
             },
             Fields: [
-                {field: "alertType", title: "Alert Type",width:"15%",template:'# if (alertType) { # <span title="#:alertType#">#: alertType # </span># } else { #<span></span># } #'},
-                {field: "message", title: "Message",width:"53%",template:'# if (message) { # <span title="#:message#">#: message # </span># } else { #<span></span># } #'},
-                {field: "subnet", title: "Subnet",width:"17%",template:'# if (subnet) { # <span title="#:subnet#">#: subnet # </span># } else { #<span></span># } #'},
+                {
+                    field: "alertType",
+                    title: "Alert Type",
+                    width: "15%",
+                    template: function(d) {
+                        var v = d.alertType || "";
+                        return '<span title="' + v + '">' + v + '</span>';
+                    }
+                },
+                {
+                    field: "message",
+                    title: "Message",
+                    width: "45%",
+                    template: function(d) {
+                        var v = d.message || "";
+                        return '<span title="' + v + '">' + v + '</span>';
+                    }
+                },
+                {
+                    field: "subnet",
+                    title: "Subnet",
+                    width: "15%",
+                    template: function(d) {
+                        var v = d.subnet || "";
+                        return '<span title="' + v + '">' + v + '</span>';
+                    }
+                },
                 {
                     field: "timestamp",
-                    template: '# if (timestamp) { # <span title="#:timestamp#">#: timestamp # </span># } else { #<span></span># } #',
                     title: "Times",
-                    width:"15%"
+                    width: "13%",
+                    template: function(d) {
+                        var v = d.timestamp || "";
+                        return '<span title="' + v + '">' + v + '</span>';
+                    }
+                },
+                {
+                    field: "actions",
+                    title: "Actions",
+                    width: "12%",
+                    template: function(d) {
+                        if (d.status === true || d.status === 1 || d.status === "1" || d.status === "true") {
+                            return '<button class="btn btn-xs btn-success" onclick="alerts.clearAlert(' + d.id + ')" title="Clear Alert" style="padding: 2px 8px; font-size: 11px; cursor: pointer;">Clear</button>';
+                        } else {
+                            return '<button class="btn btn-xs btn-danger" onclick="alerts.deleteAlert(' + d.id + ')" title="Delete Alert" style="padding: 2px 8px; font-size: 11px; cursor: pointer;">Delete</button>';
+                        }
+                    }
                 }
             ],
             sortable: true,
-            resizable:true
+            resizable: true
         };
 
         // Destroy old grid context
@@ -115,21 +156,92 @@ var alerts = {
 
     renderAlertsGridData : function (context)
     {
-        if(context.json.data != null && context.json.success == true)
+        if (context && context.json && context.json.data != null && context.json.success == true)
         {
-            var result = context.json.data;
+            var raw = context.json.data;
+            var list = [];
+            var totalCount = 0;
 
-            context.container.success(result);
+            if (Array.isArray(raw)) {
+                list = raw;
+                totalCount = raw.length;
+            } else if (raw && Array.isArray(raw.alerts)) {
+                list = raw.alerts;
+                totalCount = raw.total !== undefined ? raw.total : raw.alerts.length;
+            } else if (raw && Array.isArray(raw.data)) {
+                list = raw.data;
+                totalCount = raw.total !== undefined ? raw.total : raw.data.length;
+            }
+
+            if (context.container && context.container.success) {
+                context.container.success({ data: list, total: totalCount });
+            }
+
+            if (list.length === 0) {
+                $(".k-grid-content").html(appConstant.NoDataSpan);
+            }
         }
         else
         {
-            context.container.success("");
+            if (context && context.container && context.container.success) {
+                context.container.success({ data: [], total: 0 });
+            }
 
             $(".k-grid-content").html(appConstant.NoDataSpan);
         }
-        loaderUtil.hideModalLoader();
 
-        loaderUtil.hideCentralModalLoader();
+        try {
+            loaderUtil.hideModalLoader();
+            loaderUtil.hideCentralModalLoader();
+        } catch (e) {}
+    },
+
+    clearAlert: function (id) {
+        if (!id) return;
+        $.ajax({
+            url: '/api/alerts/' + id + '/clear',
+            type: 'PUT',
+            headers: { 'Authorization': 'Bearer ' + appManager.getCookie("token") },
+            success: function (res) {
+                if (window.notification && notification.showNotification) {
+                    notification.showNotification('success', 'Alert cleared successfully');
+                }
+                var currentFilter = $("#alertFilter").data("kendoDropDownList") ? $("#alertFilter").data("kendoDropDownList").value() : "live";
+                alerts.renderAlertsGrid({ alertFilter: currentFilter });
+                if (window.topManager && topManager.updateAlertBadge) {
+                    topManager.updateAlertBadge();
+                }
+            },
+            error: function () {
+                if (window.notification && notification.showNotification) {
+                    notification.showNotification('error', 'Failed to clear alert');
+                }
+            }
+        });
+    },
+
+    deleteAlert: function (id) {
+        if (!id) return;
+        $.ajax({
+            url: '/api/alerts/' + id,
+            type: 'DELETE',
+            headers: { 'Authorization': 'Bearer ' + appManager.getCookie("token") },
+            success: function (res) {
+                if (window.notification && notification.showNotification) {
+                    notification.showNotification('success', 'Alert permanently deleted');
+                }
+                var currentFilter = $("#alertFilter").data("kendoDropDownList") ? $("#alertFilter").data("kendoDropDownList").value() : "clear";
+                alerts.renderAlertsGrid({ alertFilter: currentFilter });
+                if (window.topManager && topManager.updateAlertBadge) {
+                    topManager.updateAlertBadge();
+                }
+            },
+            error: function () {
+                if (window.notification && notification.showNotification) {
+                    notification.showNotification('error', 'Failed to delete alert');
+                }
+            }
+        });
     },
 
     // ---------------------------------------------------------------------------Navigation-----------------------------------------------------------------------------------------------//

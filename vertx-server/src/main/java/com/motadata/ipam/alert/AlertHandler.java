@@ -1,15 +1,13 @@
 package com.motadata.ipam.alert;
 
-
 import com.motadata.ipam.core.model.ApiResponse;
 import com.motadata.ipam.security.SecurityUtil;
-
+import io.vertx.core.Vertx;
+import io.vertx.core.eventbus.MessageConsumer;
+import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.JsonObject;
-
 import io.vertx.ext.web.RoutingContext;
-
 import org.slf4j.Logger;
-
 import org.slf4j.LoggerFactory;
 
 /**
@@ -20,11 +18,44 @@ public class AlertHandler {
     private static final Logger logger = LoggerFactory.getLogger(AlertHandler.class);
 
     private final AlertService alertService;
+    private final Vertx vertx;
 
-    public AlertHandler(AlertService alertService) {
-
+    public AlertHandler(AlertService alertService, Vertx vertx) {
         this.alertService = alertService;
+        this.vertx = vertx;
+    }
 
+    /**
+     * GET /api/alerts/stream
+     * Server-Sent Events (SSE) stream for real-time alert push across all pages.
+     */
+    public void streamAlerts(RoutingContext ctx) {
+        HttpServerResponse response = ctx.response();
+        response.putHeader("Content-Type", "text/event-stream")
+                .putHeader("Cache-Control", "no-cache")
+                .putHeader("Connection", "keep-alive")
+                .setChunked(true);
+
+        response.write("event: connected\ndata: {\"status\":\"CONNECTED\"}\n\n");
+
+        MessageConsumer<JsonObject> alertConsumer = vertx.eventBus().consumer(AlertService.ADDRESS_ALERT_STREAM, msg -> {
+            JsonObject body = msg.body();
+            if (body != null && !response.closed()) {
+                response.write("event: alert\ndata: " + body.encode() + "\n\n");
+            }
+        });
+
+        MessageConsumer<JsonObject> clearConsumer = vertx.eventBus().consumer("ipam.alert.cleared", msg -> {
+            JsonObject body = msg.body();
+            if (body != null && !response.closed()) {
+                response.write("event: alert_cleared\ndata: " + body.encode() + "\n\n");
+            }
+        });
+
+        response.closeHandler(v -> {
+            alertConsumer.unregister();
+            clearConsumer.unregister();
+        });
     }
 
     /**
@@ -44,36 +75,6 @@ public class AlertHandler {
         alertService.listAlerts(limit, offset, activeOnly)
                 .onSuccess(result -> ApiResponse.sendSuccess(ctx, result))
                 .onFailure(err -> ApiResponse.sendError(ctx, 500, "ALERT_LIST_FAILED", err.getMessage()));
-
-    }
-
-    /**
-     * POST /api/alerts
-     * Creates and publishes an alert.
-     */
-    public void create(RoutingContext ctx) {
-
-        JsonObject body = ctx.body().asJsonObject();
-
-        if (body == null || body.getString("message") == null) {
-
-            ApiResponse.sendError(ctx, 400, "BAD_REQUEST", "Message is required");
-
-            return;
-
-        }
-
-        Long subnetId = body.getLong("subnetId", 0L);
-
-        String alertType = body.getString("alertType", "GENERAL");
-
-        String message = body.getString("message");
-
-        String subnet = body.getString("subnet", "");
-
-        alertService.publishAlert(subnetId, alertType, message, subnet)
-                .onSuccess(v -> ApiResponse.sendSuccess(ctx, 201, new JsonObject().put("message", "Alert published successfully")))
-                .onFailure(err -> ApiResponse.sendError(ctx, 500, "ALERT_PUBLISH_FAILED", err.getMessage()));
 
     }
 
@@ -114,6 +115,40 @@ public class AlertHandler {
         alertService.deleteAlert(alertId)
                 .onSuccess(v -> ApiResponse.sendSuccess(ctx, new JsonObject().put("message", "Alert deleted successfully")))
                 .onFailure(err -> ApiResponse.sendError(ctx, 500, "ALERT_DELETE_FAILED", err.getMessage()));
+
+    }
+
+    /**
+     * GET /api/alerts/config
+     * Retrieves current alert configuration rules and thresholds.
+     */
+    public void getConfig(RoutingContext ctx) {
+
+        alertService.getAlertConfiguration()
+                .onSuccess(config -> ApiResponse.sendSuccess(ctx, config))
+                .onFailure(err -> ApiResponse.sendError(ctx, 500, "ALERT_CONFIG_FETCH_FAILED", err.getMessage()));
+
+    }
+
+    /**
+     * PUT /api/alerts/config
+     * Updates alert configuration rules and thresholds.
+     */
+    public void updateConfig(RoutingContext ctx) {
+
+        JsonObject body = ctx.body().asJsonObject();
+
+        if (body == null) {
+
+            ApiResponse.sendError(ctx, 400, "BAD_REQUEST", "Request body is required");
+
+            return;
+
+        }
+
+        alertService.updateAlertConfiguration(body)
+                .onSuccess(updated -> ApiResponse.sendSuccess(ctx, 200, "Alert configuration updated successfully", updated))
+                .onFailure(err -> ApiResponse.sendError(ctx, 400, "ALERT_CONFIG_UPDATE_FAILED", err.getMessage()));
 
     }
 

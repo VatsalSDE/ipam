@@ -243,9 +243,21 @@ var widget=
 
         widgetRenderManager.renderGridData(callbackContexts);
 
-        appManager.initCustomScrollbar({container:$('#subnetUtilization').find('.k-grid-content')});
+        appManager.initCustomScrollbar({container:$('#top10CategoryUtilization').find('.k-grid-content')});
 
         flux.bindEvent({element:'top10CategoryUtilizationExport'}, homeManager.openTop10CategoryActionPopup);
+
+        flux.bindEvent({element: 'top10CategoryUtilization', selector:'a[data-link=categoryName]'}, function(context) {
+            var catName = $(context.currentTarget).attr('data-name') || "Default";
+            if ($('#leftPanel').hasClass('closed') || !$('#leftPanel').is(':visible') || $('#leftPanel').width() <= 50) {
+                $('#homeLeftArrow').click();
+            }
+            var treeView = $('#categoryView').data('kendoTreeView');
+            if (treeView) {
+                treeView.expand('.k-item');
+            }
+            $('#categorySearch').val(catName).trigger('input');
+        });
     },
 
     renderDNSPieChart : function (context)
@@ -609,10 +621,11 @@ var widget=
                         visible: false,
                         background: "transparent"
                     },
-                    gap:20
+                    gap: 0.3
                 },
                 series: [{
                     field: "count",
+                    categoryField: "name",
                     colorField: "color"
                 }],
                 valueAxis: {
@@ -622,6 +635,13 @@ var widget=
                     visible: false
                 },
                 categoryAxis: {
+                    field: "name",
+                    labels: {
+                        visible: true,
+                        font: "8px Arial,Helvetica,sans-serif",
+                        color: "#888",
+                        margin: { top: 1 }
+                    },
                     majorGridLines: {
                         visible: false
                     },
@@ -630,11 +650,17 @@ var widget=
                     }
                 },
                 chartArea: {
-                    height: 60,
-                    width:200
+                    height: 52,
+                    width: 220,
+                    background: "transparent",
+                    margin: { top: 0, bottom: 0, left: 0, right: 0 }
+                },
+                plotArea: {
+                    margin: { top: 0, bottom: 0, left: 0, right: 0 }
                 },
                 tooltip: {
-                    visible: true
+                    visible: true,
+                    template: "#= category #: #= value # events"
                 },
                 autoBind : true
             });

@@ -76,6 +76,18 @@ public class EventHandler {
 
     }
 
+    /**
+     * GET /api/event/summary12m
+     * Lists 12-month event summary for Dashboard sparkline.
+     */
+    public void summary12m(RoutingContext ctx) {
+
+        eventService.get12MonthEventSummary()
+                .onSuccess(list -> ApiResponse.sendSuccess(ctx, list))
+                .onFailure(err -> ApiResponse.sendError(ctx, 500, "EVENT_SUMMARY_FAILED", err.getMessage()));
+
+    }
+
     private int parseQueryParam(RoutingContext ctx, String param, int defaultValue) {
 
         String val = ctx.request().getParam(param);
