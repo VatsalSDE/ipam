@@ -383,7 +383,7 @@ public class SubnetService {
     }
 
     /**
-     * Cascades deletion of a subnet and all its associated IP address records.
+     * Cascades deletion of a subnet and all its associated IP addresses, alerts, supernet links, and requests.
      */
     public Future<JsonObject> deleteSubnet(Long subnetId) {
 
@@ -395,10 +395,15 @@ public class SubnetService {
 
         String deleteIpsSql = DbQueries.DELETE_SUBNET_IPS;
 
+        String deleteAlertsSql = DbQueries.CLEAR_ALERTS_BY_SUBNET;
+
         String deleteSubnetSql = DbQueries.DELETE_SUBNET_BY_ID;
 
         return mysqlPool.preparedQuery(deleteIpsSql).execute(Tuple.of(subnetId))
-                .compose(ipResult -> mysqlPool.preparedQuery(deleteSubnetSql).execute(Tuple.of(subnetId)))
+                .compose(ipResult -> mysqlPool.preparedQuery(deleteAlertsSql).execute(Tuple.of(subnetId)))
+                .compose(alertResult -> mysqlPool.preparedQuery("DELETE FROM supernet_details WHERE subnet_id = ?").execute(Tuple.of(String.valueOf(subnetId))))
+                .compose(supernetResult -> mysqlPool.preparedQuery("DELETE FROM ip_requests WHERE subnet_id = ?").execute(Tuple.of(String.valueOf(subnetId))))
+                .compose(reqResult -> mysqlPool.preparedQuery(deleteSubnetSql).execute(Tuple.of(subnetId)))
                 .map(subnetResult -> {
 
                     JsonObject result = new JsonObject();
@@ -411,7 +416,7 @@ public class SubnetService {
 
                         vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
                                 .put("eventType", "SUBNET_DELETED")
-                                .put("eventContext", "Deleted Subnet ID " + subnetId + " from network inventory")
+                                .put("eventContext", "Deleted Subnet ID " + subnetId + " and cascaded cleanup of all IPs, alerts, and requests")
                                 .put("severity", 2));
 
                     }
@@ -597,6 +602,65 @@ public class SubnetService {
         obj.put("status", DbUtil.getString(row, "status"));
 
         return obj;
+
+    }
+
+    /**
+     * Retrieves specific IP details by IP record ID for modal/summary inspection.
+     */
+    public Future<JsonObject> getIpDetails(Long ipId) {
+
+        if (ipId == null || ipId <= 0) {
+
+            return Future.failedFuture("Invalid IP ID");
+
+        }
+
+        return mysqlPool.preparedQuery(DbQueries.SELECT_SUBNET_IP_BY_ID)
+                .execute(Tuple.of(ipId))
+                .map(rows -> {
+
+                    if (!rows.iterator().hasNext()) {
+
+                        return null;
+
+                    }
+
+                    Row row = rows.iterator().next();
+
+                    JsonObject obj = new JsonObject();
+
+                    obj.put("id", DbUtil.getLong(row, "id"));
+
+                    obj.put("ipAddress", DbUtil.getString(row, "ipAddress"));
+
+                    String mac = DbUtil.getString(row, "macAddress");
+                    obj.put("macAddress", mac.isBlank() ? "N/A" : mac);
+
+                    String st = DbUtil.getString(row, "status");
+                    obj.put("status", st.isBlank() ? "AVAILABLE" : st);
+
+                    String dt = DbUtil.getString(row, "deviceType");
+                    obj.put("deviceType", dt.isBlank() ? "N/A" : dt);
+
+                    String hn = DbUtil.getString(row, "hostName");
+                    obj.put("hostName", hn.isBlank() ? "N/A" : hn);
+
+                    String auth = DbUtil.getString(row, "authenticity");
+                    obj.put("authenticity", auth.isBlank() ? "N/A" : auth);
+
+                    String fwd = DbUtil.getString(row, "ipToDns");
+                    obj.put("ipToDns", fwd.isBlank() ? "N/A" : fwd);
+
+                    String rev = DbUtil.getString(row, "dnsToIp");
+                    obj.put("dnsToIp", rev.isBlank() ? "N/A" : rev);
+
+                    String alive = DbUtil.getString(row, "lastAliveTime");
+                    obj.put("lastAliveTime", alive.isBlank() ? "N/A" : alive);
+
+                    return obj;
+
+                });
 
     }
 

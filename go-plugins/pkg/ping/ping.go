@@ -186,11 +186,15 @@ func ExecutePing(inputData []byte) PingResult {
 	// High-speed industrial fping execution
 	// -a: print alive only
 	// -q: quiet (suppress headers and per-target verbose logs)
+	// -i: interval between sending packets in ms (1ms for ultra-fast dispatch)
+	// -B: backoff multiplier (1.0 for constant timeout without exponential delay)
 	// -t: timeout per target in ms
 	// -r: retry count
 	cmd := exec.Command("fping",
 		"-a",
 		"-q",
+		"-i", "1",
+		"-B", "1.0",
 		"-t", strconv.Itoa(timeoutMs),
 		"-r", strconv.Itoa(retryCount),
 	)

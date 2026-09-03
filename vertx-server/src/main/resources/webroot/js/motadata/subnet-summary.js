@@ -345,15 +345,22 @@ var subnetSummary =
 
                 flux.bindKendoButtonClickEvent({element: 'exportCsvIP',eventId:id, exportType:2}, subnetSummary.onSubnetSummaryPageExport);
 
-                flux.bindKendoButtonClickEvent({element: 'addMultipleIP',eventId:id},subnetSummary.onMultipleIPAddButtonClick);
+                var currentRole = (typeof appManager !== "undefined" && appManager.getCurrentUserRole) ? appManager.getCurrentUserRole() : 'ROLE_ADMIN';
+                var perms = (typeof appManager !== "undefined" && appManager.getCurrentUserPermissions) ? appManager.getCurrentUserPermissions() : [];
+                var canWrite = currentRole === 'ROLE_ADMIN' || (perms && (perms.indexOf('ROLE_ADMIN') !== -1 || perms.indexOf('PERM_DASHBOARD_WRITE') !== -1 || perms.indexOf('PERM_SUBNET_EDIT') !== -1));
 
-                flux.bindKendoButtonClickEvent({element: 'selectIPRange',eventId:id},subnetSummary.onSelectIPRangeButtonClick);
-
-                flux.bindKendoButtonClickEvent({element: 'deleteMultipleIP'},subnetSummary.onMultipleDeleteButtonClick);
-
-                flux.bindKendoButtonClickEvent({element : 'scanIP'},subnetSummary.onScanButtonClick);
-
-                flux.bindKendoButtonClickEvent({element: 'importIP',eventId:id},subnetSummary.onSubnetIPImportCSVClick);
+                if (!canWrite) {
+                    $('#scanIP').hide();
+                    $('#addMultipleIP').hide();
+                    $('#deleteMultipleIP').hide();
+                    $('#importIP').hide();
+                } else {
+                    flux.bindKendoButtonClickEvent({element: 'addMultipleIP',eventId:id},subnetSummary.onMultipleIPAddButtonClick);
+                    flux.bindKendoButtonClickEvent({element: 'selectIPRange',eventId:id},subnetSummary.onSelectIPRangeButtonClick);
+                    flux.bindKendoButtonClickEvent({element: 'deleteMultipleIP'},subnetSummary.onMultipleDeleteButtonClick);
+                    flux.bindKendoButtonClickEvent({element : 'scanIP'},subnetSummary.onScanButtonClick);
+                    flux.bindKendoButtonClickEvent({element: 'importIP',eventId:id},subnetSummary.onSubnetIPImportCSVClick);
+                }
 
                 flux.bindEvent({element: 'subnetIPAddresses', selector: 'a[data-link=ipAddress]',breadCrumbMenu:context.breadCrumbMenu,searchedValue:context.searchedValue},ipAddressSummary.loadIPAddressSummary);
             }
@@ -510,6 +517,16 @@ var subnetSummary =
             if(event)
             {
                 event.event.preventDefault();
+
+                var currentRole = (typeof appManager !== "undefined" && appManager.getCurrentUserRole) ? appManager.getCurrentUserRole() : 'ROLE_ADMIN';
+                var perms = (typeof appManager !== "undefined" && appManager.getCurrentUserPermissions) ? appManager.getCurrentUserPermissions() : [];
+                var canWrite = currentRole === 'ROLE_ADMIN' || (perms && (perms.indexOf('ROLE_ADMIN') !== -1 || perms.indexOf('PERM_DASHBOARD_WRITE') !== -1 || perms.indexOf('PERM_SUBNET_EDIT') !== -1));
+
+                if(!canWrite)
+                {
+                    notification.showNotification({notificationTitle: "Permission Denied: Your role does not have scan privileges", notificationType: "error"});
+                    return;
+                }
 
                 if(appManager.validatePermission() == true)
                 {

@@ -5,6 +5,7 @@ import com.motadata.ipam.core.database.DbQueries;
 import com.motadata.ipam.core.database.DbUtil;
 
 import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonObject;
 
 import io.vertx.mysqlclient.MySQLPool;
 
@@ -63,7 +64,44 @@ public class SubnetScanScheduler {
 
         logger.info("Starting SubnetScanScheduler with polling interval: {} ms", pollIntervalMs);
 
+        // 1. Listen for ANY completed scan (Manual UI click OR Scheduled) to update the in-memory map
+        if (vertx != null && vertx.eventBus() != null) {
+
+            vertx.eventBus().<JsonObject>consumer("ipam.subnet.scan.completed", message -> {
+
+                JsonObject body = message.body();
+
+                if (body != null && body.containsKey("subnetId")) {
+
+                    Long subnetId = body.getLong("subnetId");
+
+                    Long completedAt = body.getLong("completedAt", Instant.now().toEpochMilli());
+
+                    lastScannedMap.put(subnetId, completedAt);
+
+                    logger.debug("SubnetScanScheduler updated timestamp for Subnet ID {} to {}", subnetId, completedAt);
+
+                }
+
+            });
+
+        }
+
+        // 2. Start the periodic checker
         periodicTimerId = vertx.setPeriodic(pollIntervalMs, id -> checkAndTriggerScheduledScans());
+
+    }
+
+    /**
+     * Public method to manually record a scan timestamp for a subnet if called directly.
+     */
+    public void recordScan(Long subnetId) {
+
+        if (subnetId != null) {
+
+            this.lastScannedMap.put(subnetId, Instant.now().toEpochMilli());
+
+        }
 
     }
 

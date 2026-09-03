@@ -237,6 +237,45 @@ public class SubnetHandler {
 
     }
 
+    /**
+     * GET /api/subnet/ip/:id
+     * Returns detailed IP record by IP record ID.
+     */
+    public void getIpDetails(RoutingContext ctx) {
+
+        String idParam = ctx.pathParam("id");
+
+        Long ipId = null;
+        try {
+            ipId = Long.parseLong(idParam != null ? idParam.trim() : "");
+        } catch (Exception ignored) {}
+
+        if (ipId == null) {
+
+            ApiResponse.sendError(ctx, 400, "BAD_REQUEST", "Invalid IP ID: " + idParam);
+
+            return;
+
+        }
+
+        subnetService.getIpDetails(ipId)
+                .onSuccess(data -> {
+
+                    if (data == null) {
+
+                        ApiResponse.sendError(ctx, 404, "NOT_FOUND", "IP record not found");
+
+                    } else {
+
+                        ApiResponse.sendSuccess(ctx, data);
+
+                    }
+
+                })
+                .onFailure(err -> ApiResponse.sendError(ctx, 500, "INTERNAL_SERVER_ERROR", err.getMessage()));
+
+    }
+
     private int parseQueryParam(RoutingContext ctx, String paramName, int defaultValue) {
 
         String value = ctx.request().getParam(paramName);

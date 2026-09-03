@@ -43,7 +43,7 @@ public class ScannerService {
 
     private static final Logger logger = LoggerFactory.getLogger(ScannerService.class);
 
-    private static final int DEFAULT_CHUNK_SIZE = 512;
+    private static final int DEFAULT_CHUNK_SIZE = 1024;
 
     private final MySQLPool mysqlPool;
 
@@ -244,18 +244,30 @@ public class ScannerService {
 
                                         vertx.eventBus().publish("ipam.subnet.scan.completed", summary);
 
-                                        // Automated Alert Trigger: If subnet utilization >= 80%, publish HIGH_UTILIZATION alert
-                                        if (totalIps > 0 && ((double) allUpIps.size() / totalIps) >= 0.80) {
+                                        // Dynamic Alert Evaluation: Send utilization to AlertService to check user's configured thresholds
+                                        if (totalIps > 0) {
 
-                                            int pct = (int) (((double) allUpIps.size() / totalIps) * 100);
+                                            double ratio = (double) allUpIps.size() / totalIps;
 
-                                            JsonObject alertMsg = new JsonObject()
+                                            int pct = (int) Math.round(ratio * 100);
+
+                                            JsonObject highAlert = new JsonObject()
                                                     .put("subnetId", subnetId)
                                                     .put("alertType", "HIGH_UTILIZATION")
+                                                    .put("percentage", pct)
                                                     .put("message", "Subnet '" + subnetName + "' utilization reached " + pct + "% (" + allUpIps.size() + "/" + totalIps + " IPs used)")
                                                     .put("subnet", subnetAddress);
 
-                                            vertx.eventBus().send(AlertService.ADDRESS_ALERT_PUBLISH, alertMsg);
+                                            vertx.eventBus().send(AlertService.ADDRESS_ALERT_PUBLISH, highAlert);
+
+                                            JsonObject lowAlert = new JsonObject()
+                                                    .put("subnetId", subnetId)
+                                                    .put("alertType", "LOW_UTILIZATION")
+                                                    .put("percentage", pct)
+                                                    .put("message", "Subnet '" + subnetName + "' utilization is low at " + pct + "% (" + allUpIps.size() + "/" + totalIps + " IPs used)")
+                                                    .put("subnet", subnetAddress);
+
+                                            vertx.eventBus().send(AlertService.ADDRESS_ALERT_PUBLISH, lowAlert);
 
                                         }
 
