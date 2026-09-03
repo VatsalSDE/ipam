@@ -362,11 +362,11 @@ var ipRequests=
                     var ipList = Array.isArray(request.json.data) ? request.json.data : [request.json.data];
 
                     var ipData = ipList
-                        .filter(item => item && item.status === "Available")
+                        .filter(item => item && item.status && item.status.toString().toLowerCase() === "available")
                         .map(item => ({
-                            ip: item.ipAddress || "N/A",
-                            status: item.status || "Unknown",
-                            mac: item.macAddress || "N/A"
+                            ip: item.ipAddress || item.ip || "N/A",
+                            status: "Available",
+                            mac: item.macAddress || item.mac || "N/A"
                         }));
 
                     var grid = $("#availableIpsGrid").data("kendoGrid");
@@ -612,11 +612,11 @@ var ipRequests=
                             var ipList = Array.isArray(request.json.data) ? request.json.data : [request.json.data];
 
                             var ipData = ipList
-                                .filter(item => item && item.status === "Available")
+                                .filter(item => item && item.status && item.status.toString().toLowerCase() === "available")
                                 .map(item => ({
-                                    ip: item.ipAddress || "N/A",
-                                    status: item.status || "Unknown",
-                                    mac: item.macAddress || "N/A"
+                                    ip: item.ipAddress || item.ip || "N/A",
+                                    status: "Available",
+                                    mac: item.macAddress || item.mac || "N/A"
                                 }));
 
                             var grid = $("#availableIpsGrid").data("kendoGrid");
@@ -809,15 +809,20 @@ var ipRequests=
         },
         getAuthoritiesFromCookie: function()
         {
-            let authoritiesCookie = document.cookie.split(';').find(cookie => cookie.trim().startsWith('authorities='));
-            const roleRegex = /ROLE_[A-Za-z0-9\s]+/g;
-            return authoritiesCookie.match(roleRegex);
+            var authoritiesCookie = document.cookie.split(';').find(cookie => cookie.trim().startsWith('authorities='));
+            if (authoritiesCookie) {
+                const roleRegex = /ROLE_[A-Za-z0-9\s]+/g;
+                var matched = authoritiesCookie.match(roleRegex);
+                if (matched) return matched;
+            }
+            var userRole = appManager.getCookie("userRole") || "ROLE_ADMIN";
+            return [userRole];
         },
 
         hasRole: function(role)
         {
             const authorities = ipRequests.getAuthoritiesFromCookie();
-            return authorities.includes(role);
+            return authorities && authorities.includes(role);
         },
 
         getUserName: function(name)

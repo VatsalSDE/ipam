@@ -107,6 +107,12 @@ public final class DbQueries {
             "SELECT id, ip_address, mac_address, status, device_type, host_name, authenticity " +
             "FROM subnet_ip_details WHERE subnet_id_id = ?";
 
+    public static final String SELECT_SUBNET_IP_BY_ID =
+            "SELECT id, ip_address as ipAddress, mac_address as macAddress, status, " +
+            "device_type as deviceType, host_name as hostName, authenticity, " +
+            "forward_lookup as ipToDns, reverse_lookup as dnsToIp, last_alive_time as lastAliveTime " +
+            "FROM subnet_ip_details WHERE id = ?";
+
     // =========================================================================
     // Scanner & Scheduler Queries
     // =========================================================================
@@ -138,7 +144,7 @@ public final class DbQueries {
             "    WHERE subnet_id_id = ? " +
             "    GROUP BY subnet_id_id" +
             ") counts ON sd.id = counts.subnet_id_id " +
-            "SET sd.used_ip = counts.used_count, sd.available_ip = counts.avail_count " +
+            "SET sd.used_ip = counts.used_count, sd.available_ip = counts.avail_count, sd.last_scan_time = NOW() " +
             "WHERE sd.id = ?";
 
     public static final String SCHEDULER_FIND_DUE_SUBNETS =
@@ -164,8 +170,8 @@ public final class DbQueries {
 
     public static final String INSERT_GATEWAY =
             "INSERT INTO gateway (name, gateway, version, community, security_level, " +
-            "authentication_protocol, authentication_password, privacy_protocol, private_password, security_user_name) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            "authentication_protocol, authentication_password, privacy_protocol, private_password, security_user_name, status) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     public static final String DELETE_GATEWAY =
             "DELETE FROM gateway WHERE id = ?";
@@ -207,6 +213,18 @@ public final class DbQueries {
             "INSERT INTO event (timestamp, event_type, event_context, severity, done_by_id) " +
             "VALUES (NOW(), ?, ?, ?, ?)";
 
+    public static final String GET_12_MONTH_EVENT_SUMMARY =
+            "SELECT DATE_FORMAT(timestamp, '%Y-%m') as monthName, " +
+            "COUNT(*) as totalEvents, " +
+            "MIN(severity) as worstSeverity, " +
+            "SUM(CASE WHEN severity = 1 THEN 1 ELSE 0 END) as criticalCount, " +
+            "SUM(CASE WHEN severity = 2 THEN 1 ELSE 0 END) as warningCount, " +
+            "SUM(CASE WHEN severity = 3 THEN 1 ELSE 0 END) as infoCount " +
+            "FROM event " +
+            "WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 12 MONTH) " +
+            "GROUP BY DATE_FORMAT(timestamp, '%Y-%m') " +
+            "ORDER BY monthName ASC";
+
     // =========================================================================
     // Alert & Alert Stream Queries
     // =========================================================================
@@ -237,6 +255,12 @@ public final class DbQueries {
 
     public static final String DELETE_ALERT_BY_ID =
             "DELETE FROM alert_stream WHERE id = ?";
+
+    public static final String GET_ALERT_CONFIG =
+            "SELECT alert_key as alertKey, alert_value as alertValue FROM alert";
+
+    public static final String UPSERT_ALERT_CONFIG =
+            "INSERT INTO alert (alert_key, alert_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE alert_value = VALUES(alert_value)";
 
     // =========================================================================
     // Rogue Detection Queries
@@ -333,7 +357,14 @@ public final class DbQueries {
             "FROM database_maintainence WHERE id = 1";
 
     public static final String UPDATE_DATABASE_MAINTENANCE =
-            "UPDATE database_maintainence SET maintained_days = ?, status = ?, schedule_status = ? WHERE id = 1";
+            "UPDATE database_maintainence SET " +
+            "maintained_days = COALESCE(?, maintained_days), " +
+            "status = COALESCE(?, status), " +
+            "schedule_status = COALESCE(?, schedule_status), " +
+            "backup_path = COALESCE(?, backup_path), " +
+            "duration = COALESCE(?, duration), " +
+            "schedule_hour = COALESCE(?, schedule_hour) " +
+            "WHERE id = 1";
 
     public static final String PURGE_OLD_EVENTS =
             "DELETE FROM event WHERE timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)";
@@ -342,7 +373,51 @@ public final class DbQueries {
             "DELETE FROM ip_change_log WHERE timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)";
 
     public static final String PURGE_OLD_ALERTS =
-            "DELETE FROM alert_stream WHERE timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)";
+            "DELETE FROM alert_stream WHERE (status = 0 OR status = false) AND timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)";
+
+    // =========================================================================
+    // IP Requests Queries
+    // =========================================================================
+
+    public static final String LIST_ALL_IP_REQUESTS =
+            "SELECT id, number_of_ips as numberOfIps, ips, status, subnet_id as subnetId, " +
+            "preferred_subnet as preferredSubnet, purpose, remark, created_by as createdBy, " +
+            "created_date as createdDate, last_modified_by as lastModifiedBy, last_modified_date as lastModifiedDate " +
+            "FROM ip_requests ORDER BY created_date DESC";
+
+    public static final String LIST_USER_IP_REQUESTS =
+            "SELECT id, number_of_ips as numberOfIps, ips, status, subnet_id as subnetId, " +
+            "preferred_subnet as preferredSubnet, purpose, remark, created_by as createdBy, " +
+            "created_date as createdDate, last_modified_by as lastModifiedBy, last_modified_date as lastModifiedDate " +
+            "FROM ip_requests WHERE created_by = ? ORDER BY created_date DESC";
+
+    public static final String FIND_IP_REQUEST_BY_ID =
+            "SELECT id, number_of_ips as numberOfIps, ips, status, subnet_id as subnetId, " +
+            "preferred_subnet as preferredSubnet, purpose, remark, created_by as createdBy, " +
+            "created_date as createdDate, last_modified_by as lastModifiedBy, last_modified_date as lastModifiedDate " +
+            "FROM ip_requests WHERE id = ?";
+
+    public static final String INSERT_IP_REQUEST =
+            "INSERT INTO ip_requests (number_of_ips, ips, status, subnet_id, preferred_subnet, purpose, created_by, created_date) " +
+            "VALUES (?, ?, 0, ?, ?, ?, ?, NOW())";
+
+    public static final String APPROVE_IP_REQUEST =
+            "UPDATE ip_requests SET status = 1, subnet_id = ?, ips = ?, preferred_subnet = 1, remark = ?, last_modified_by = ?, last_modified_date = NOW() " +
+            "WHERE id = ?";
+
+    public static final String REJECT_IP_REQUEST =
+            "UPDATE ip_requests SET status = 2, remark = ?, last_modified_by = ?, last_modified_date = NOW() " +
+            "WHERE id = ?";
+
+    public static final String UPDATE_IP_STATUS_RESERVED =
+            "UPDATE subnet_ip_details SET status = 'Reserved', previous_status = 'Available', modified_date = NOW() WHERE ip_address = ?";
+
+    public static final String FIND_IP_DETAILS_BY_IP =
+            "SELECT id, ip_address, subnet_id_id as subnetId FROM subnet_ip_details WHERE ip_address = ?";
+
+    public static final String INSERT_IP_CHANGE_LOG =
+            "INSERT INTO ip_change_log (user, ip_address_id, subnet_id, ip, timestamp, changelog) " +
+            "VALUES (?, ?, ?, ?, NOW(), 'Status changed from Available to Reserved via IP Request Approval')";
 
 }
 

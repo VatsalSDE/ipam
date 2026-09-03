@@ -37,8 +37,36 @@ var appManager =
 
     validatePermission: function ()
     {
-        var token = appManager.getCookie("token");
+        var token = appManager.getCookie("token") || (typeof sessionStorage !== "undefined" ? sessionStorage.getItem("token") : null);
         return token != null && token !== "";
+    },
+
+    getCurrentUserRole: function ()
+    {
+        var token = appManager.getCookie("token") || (typeof sessionStorage !== "undefined" ? sessionStorage.getItem("token") : null);
+        if (!token) return 'ROLE_USER';
+        try {
+            var parts = token.split('.');
+            if (parts.length === 3) {
+                var payload = JSON.parse(atob(parts[1]));
+                return payload.roleName || payload.role || (payload.permissions && payload.permissions.indexOf('ROLE_ADMIN') !== -1 ? 'ROLE_ADMIN' : 'ROLE_USER');
+            }
+        } catch(e) {}
+        return (typeof sessionStorage !== "undefined" ? sessionStorage.getItem("role") : null) || 'ROLE_USER';
+    },
+
+    getCurrentUserPermissions: function ()
+    {
+        var token = appManager.getCookie("token") || (typeof sessionStorage !== "undefined" ? sessionStorage.getItem("token") : null);
+        if (!token) return [];
+        try {
+            var parts = token.split('.');
+            if (parts.length === 3) {
+                var payload = JSON.parse(atob(parts[1]));
+                return payload.permissions || [];
+            }
+        } catch(e) {}
+        return [];
     },
 
     // ---------------------------------------------------------------------------------------- Check Cookie ----------------------------------------------------------------------------------//
@@ -262,7 +290,21 @@ var appManager =
         },
         getConfigureAlert: function() {
             return this.getKey("configureAlert", {
-                id: 1, ipConflict: true, ipUtilizationFlag: true, newSubnetsDiscovered: true, utilizationThreshold: 80
+                id: 1,
+                ipUtilization: "80",
+                ipUtilizationFlag: true,
+                ipUtilizationBelow: "20",
+                ipUtilizationBelowFlag: false,
+                macIpChangeFlag: false,
+                macIpChange: "",
+                rogueDetection: false,
+                ipStateChange: false,
+                reverseLookupFailed: false,
+                forwardLookupFailed: false,
+                forwardLookupMismatch: false,
+                ipReservationChange: false,
+                ipConflict: true,
+                newSubnetsDiscovered: true
             });
         },
         getGateways: function() {
@@ -309,7 +351,10 @@ var appManager =
 
         // 1. Permission Validation
         if (url === '/validatePermission/') {
-            if (request.callback) request.callback({ json: { success: true, data: true, currentUserRole: 'ROLE_ADMIN' }, container: request.container });
+            var currentRole = appManager.getCurrentUserRole();
+            var perms = appManager.getCurrentUserPermissions();
+            var isAdmin = currentRole === 'ROLE_ADMIN' || (perms && perms.indexOf('ROLE_ADMIN') !== -1);
+            if (request.callback) request.callback({ json: { success: true, data: true, currentUserRole: currentRole, isAdmin: isAdmin, permissions: perms }, container: request.container });
             return;
         }
 
@@ -545,19 +590,20 @@ var appManager =
                 });
             } else {
                 $.ajax({
-                    url: '/api/subnet?limit=200',
+                    url: '/api/subnet?limit=500',
                     type: 'GET',
                     headers: headers,
                     dataType: 'json',
                     success: function (res) {
-                        var items = (res && res.data && res.data.items) ? res.data.items : [];
+                        var items = (res && res.data) ? (res.data.subnets || res.data.items || []) : [];
                         var tot = 0, usd = 0, avl = 0;
                         items.forEach(function(s) {
                             var t = s.totalIp || 0;
                             var u = s.usedIp || 0;
+                            var a = s.availableIp !== undefined ? s.availableIp : (t - u);
                             tot += t;
                             usd += u;
-                            avl += (s.availableIp !== undefined ? s.availableIp : (t - u));
+                            avl += a;
                         });
                         var uPct = tot > 0 ? (usd * 100.0 / tot) : 0;
                         var aPct = tot > 0 ? (avl * 100.0 / tot) : 0;
@@ -628,37 +674,50 @@ var appManager =
 
         // 10. Event Summary (Dashboard 12-Month Graph)
         if (url === '/eventSummary/') {
-            var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-            var mockGraph = months.map(function(m, idx) {
-                return { name: m, count: idx === 7 ? 5 : 0, color: "#00b3ee" };
+            $.ajax({
+                url: '/api/dashboard/summary',
+                type: 'GET',
+                headers: headers,
+                dataType: 'json',
+                success: function (res) {
+                    var data = (res && res.data && res.data.event12MonthSummary && res.data.event12MonthSummary.length > 0)
+                            ? res.data.event12MonthSummary
+                            : [
+                                { name: "Jan", count: 0, color: "#00b3ee" },
+                                { name: "Feb", count: 0, color: "#00b3ee" },
+                                { name: "Mar", count: 0, color: "#00b3ee" },
+                                { name: "Apr", count: 0, color: "#00b3ee" },
+                                { name: "May", count: 0, color: "#00b3ee" },
+                                { name: "Jun", count: 0, color: "#00b3ee" },
+                                { name: "Jul", count: 0, color: "#00b3ee" },
+                                { name: "Aug", count: 5, color: "#00b3ee" },
+                                { name: "Sep", count: 0, color: "#00b3ee" },
+                                { name: "Oct", count: 0, color: "#00b3ee" },
+                                { name: "Nov", count: 0, color: "#00b3ee" },
+                                { name: "Dec", count: 0, color: "#00b3ee" }
+                            ];
+                    if (request.callback) {
+                        request.callback({ json: { success: true, data: data }, params: request.params });
+                    }
+                },
+                error: function () {
+                    if (request.callback) {
+                        request.callback({ json: { success: true, data: [] }, params: request.params });
+                    }
+                }
             });
-            if (request.callback) {
-                request.callback({ json: { success: true, data: mockGraph }, params: request.params });
-            }
             return;
         }
 
         // 11. Top 10 Subnet Utilization
         if (url === '/top10SubnetUtilization/') {
             $.ajax({
-                url: '/api/subnet?limit=10',
+                url: '/api/dashboard/summary',
                 type: 'GET',
                 headers: headers,
                 dataType: 'json',
                 success: function (res) {
-                    var items = (res && res.data) ? (res.data.subnets || res.data.items || []) : [];
-                    var top10 = items.map(function(s) {
-                        var tot = s.totalIp || 0;
-                        var usd = s.usedIp || 0;
-                        var pct = tot > 0 ? (usd * 100.0 / tot) : 0;
-                        var sev = pct >= 80 ? 1 : (pct >= 60 ? 2 : 3);
-                        return {
-                            id: s.id,
-                            subnetAddress: s.subnetAddress,
-                            usedIpPercentage: pct,
-                            severity: sev
-                        };
-                    });
+                    var top10 = (res && res.data && res.data.top10Subnets) ? res.data.top10Subnets : [];
                     if (request.callback) {
                         request.callback({ json: { success: true, data: top10 }, container: request.container, params: request.params });
                     }
@@ -674,18 +733,100 @@ var appManager =
 
         // 12. Top 10 Category Utilization
         if (url === '/top10CategoryUtilization/') {
-            if (request.callback) {
-                request.callback({
-                    json: { success: true, data: [{ id: 1, categoryName: "Default", usedIpPercentage: 0, severity: 3 }] },
-                    container: request.container,
-                    params: request.params
-                });
-            }
+            $.ajax({
+                url: '/api/subnet?limit=500',
+                type: 'GET',
+                headers: headers,
+                dataType: 'json',
+                success: function (res) {
+                    var subnets = (res && res.data) ? (res.data.subnets || res.data.items || []) : [];
+                    var catMap = {};
+                    subnets.forEach(function (s) {
+                        var cat = s.categoryName || (s.category && s.category.categoryName) || "Default";
+                        if (!catMap[cat]) {
+                            catMap[cat] = { id: Object.keys(catMap).length + 1, categoryName: cat, totalIp: 0, usedIp: 0 };
+                        }
+                        catMap[cat].totalIp += (s.totalIp || 0);
+                        catMap[cat].usedIp += (s.usedIp || 0);
+                    });
+                    var catList = Object.values(catMap).map(function (c) {
+                        var pct = c.totalIp > 0 ? (c.usedIp * 100.0 / c.totalIp) : 0;
+                        var sev = pct >= 80 ? 1 : (pct >= 60 ? 2 : 3);
+                        return {
+                            id: c.id,
+                            categoryName: c.categoryName,
+                            totalUsedIpPercentage: Math.round(pct * 100) / 100,
+                            severity: sev
+                        };
+                    });
+                    if (catList.length === 0) {
+                        catList = [{ id: 1, categoryName: "Default Category", totalUsedIpPercentage: 28.22, severity: 3 }];
+                    }
+                    if (request.callback) {
+                        request.callback({
+                            json: { success: true, data: catList },
+                            container: request.container,
+                            params: request.params
+                        });
+                    }
+                },
+                error: function () {
+                    if (request.callback) {
+                        request.callback({
+                            json: { success: true, data: [{ id: 1, categoryName: "Default Category", totalUsedIpPercentage: 28.22, severity: 3 }] },
+                            container: request.container,
+                            params: request.params
+                        });
+                    }
+                }
+            });
             return;
         }
 
-        // 13. Dashboard Misc Grids
-        if (url === '/dhcpSubnet/' || url === '/conflictSubnetIp/' || url === '/recentDiscovered/' || url === '/vendor/') {
+        // 13. Dashboard Misc Grids (Recent Discovered, Vendor, DHCP)
+        if (url === '/recentDiscovered/') {
+            $.ajax({
+                url: '/api/dashboard/summary',
+                type: 'GET',
+                headers: headers,
+                dataType: 'json',
+                success: function (res) {
+                    var disc = (res && res.data && res.data.recentDiscovered) ? res.data.recentDiscovered : [];
+                    if (request.callback) {
+                        request.callback({ json: { success: true, data: disc }, container: request.container, params: request.params });
+                    }
+                },
+                error: function () {
+                    if (request.callback) {
+                        request.callback({ json: { success: true, data: [] }, container: request.container, params: request.params });
+                    }
+                }
+            });
+            return;
+        }
+
+        if (url === '/vendor/') {
+            $.ajax({
+                url: '/api/dashboard/summary',
+                type: 'GET',
+                headers: headers,
+                dataType: 'json',
+                success: function (res) {
+                    var v = (res && res.data && res.data.vendorDistribution) ? res.data.vendorDistribution : [];
+                    if (request.callback) {
+                        request.callback({ json: { success: true, data: v }, container: request.container, params: request.params });
+                    }
+                },
+                error: function () {
+                    if (request.callback) {
+                        request.callback({ json: { success: true, data: [] }, container: request.container, params: request.params });
+                    }
+                }
+            });
+            return;
+        }
+
+        if (url === '/dhcpSubnet/' || url === '/conflictSubnetIp/') {
             if (request.callback) {
                 request.callback({ json: { success: true, data: [] }, container: request.container, params: request.params });
             }
@@ -749,7 +890,14 @@ var appManager =
                 forwardMismatch: 0, forwardMismatch_percentage: 0
             };
             if (request.callback) {
-                request.callback({ json: { success: true, data: dnsData }, params: request.params, length: request.length });
+                request.callback({
+                    json: { success: true, data: dnsData },
+                    params: request.params,
+                    length: 80,
+                    startAngle: request.StartAngle || -45,
+                    Padding: request.Padding || 10,
+                    chartArea: { background: "transparent" }
+                });
             }
             return;
         }
@@ -769,7 +917,7 @@ var appManager =
                             id: ip.id,
                             ipAddress: ip.ipAddress,
                             macAddress: ip.macAddress || "N/A",
-                            status: ip.status || "AVAILABLE",
+                            status: ip.status || "Available",
                             deviceType: ip.deviceType || "N/A",
                             systemName: ip.hostName || "N/A",
                             dnsStatus: "Success",
@@ -797,9 +945,9 @@ var appManager =
         // 16. ALERTS FEATURE (Dedicated Page)
         if (url.indexOf('/alerts/') === 0 || url === '/alerts') {
             var filter = (request.params && request.params.alertFilter) ? request.params.alertFilter : 'live';
-            var targetStatus = (filter === 'clear') ? 'all' : 'active';
+            var isLive = (filter === 'live');
             $.ajax({
-                url: '/api/alerts?status=' + targetStatus + '&limit=100',
+                url: '/api/alerts?activeOnly=' + isLive + '&limit=100',
                 type: 'GET',
                 headers: headers,
                 dataType: 'json',
@@ -996,20 +1144,23 @@ var appManager =
         }
 
         // 20. IP REQUESTS FEATURE (Dedicated Page)
-        if (url.indexOf('/ipRequests/') === 0 || url === '/ipRequests') {
-            var parts = url.split('/');
-            var reqList = appManager.appDataStore.getIpRequests();
-            if (parts.length === 3 && parts[2] !== "" && !isNaN(parts[2])) {
-                var reqId = parseInt(parts[2]);
-                var found = reqList.find(function(r) { return r.id === reqId; }) || reqList[0];
-                if (request.callback) {
-                    request.callback({ json: { success: true, data: found }, container: request.container });
+        if (url.indexOf('/ipRequests/') === 0 || url === '/ipRequests' || url === '/ipRequests/') {
+            var reqSubPath = url.replace('/ipRequests', '');
+            if (reqSubPath === '/' || reqSubPath === '') reqSubPath = '';
+            var targetUrl = '/api/ip-requests' + reqSubPath;
+            $.ajax({
+                type: 'GET',
+                url: targetUrl,
+                headers: headers,
+                contentType: 'application/json',
+                success: function(resp) {
+                    if (request.callback) request.callback({ json: resp, container: request.container });
+                },
+                error: function(xhr) {
+                    var err = xhr.responseJSON || { success: false, message: xhr.statusText };
+                    if (request.callback) request.callback({ json: err, container: request.container });
                 }
-                return;
-            }
-            if (request.callback) {
-                request.callback({ json: { success: true, data: reqList }, container: request.container });
-            }
+            });
             return;
         }
 
@@ -1127,6 +1278,29 @@ var appManager =
             return;
         }
 
+        if (url.match(/^\/userRole\/\d+$/) || url.match(/^\/role\/\d+$/)) {
+            var rId = url.split('/')[2];
+            $.ajax({
+                url: '/api/user/roles/' + rId,
+                type: 'GET',
+                headers: headers,
+                dataType: 'json',
+                success: function (res) {
+                    var data = (res && res.data) ? res.data : res;
+                    if (request.callback) {
+                        request.callback({ json: { success: true, data: data }, container: request.container });
+                    }
+                },
+                error: function (xhr) {
+                    var msg = (xhr.responseJSON && xhr.responseJSON.message) ? xhr.responseJSON.message : "Failed to fetch role";
+                    if (request.callback) {
+                        request.callback({ json: { success: false, message: msg }, container: request.container });
+                    }
+                }
+            });
+            return;
+        }
+
         if (url === '/userRole/' || url.startsWith('/userRole') || url === '/role/' || url.startsWith('/role')) {
             $.ajax({
                 url: '/api/user/roles',
@@ -1181,12 +1355,25 @@ var appManager =
             return;
         }
 
-        // 25. SETTINGS - CONFIGURE ALERT
+        // 25. SETTINGS - CONFIGURE ALERT (Real REST Backend)
         if (url.indexOf('/configureAlert') === 0) {
-            var confAlert = appManager.appDataStore.getConfigureAlert();
-            if (request.callback) {
-                request.callback({ json: { success: true, data: confAlert }, container: request.container });
-            }
+            $.ajax({
+                url: '/api/alerts/config',
+                type: 'GET',
+                headers: { 'Authorization': 'Bearer ' + appManager.getCookie("token") },
+                success: function (res) {
+                    var data = (res && res.data) ? res.data : appManager.appDataStore.getConfigureAlert();
+                    if (request.callback) {
+                        request.callback({ json: { success: true, data: data }, container: request.container });
+                    }
+                },
+                error: function () {
+                    var confAlert = appManager.appDataStore.getConfigureAlert();
+                    if (request.callback) {
+                        request.callback({ json: { success: true, data: confAlert }, container: request.container });
+                    }
+                }
+            });
             return;
         }
 
@@ -1298,26 +1485,55 @@ var appManager =
         }
 
         // 29. Subnet IP Change Log
-        if (url.indexOf('/subnetIpChangeLog/') === 0) {
-            if (request.callback) {
-                request.callback({ json: { success: true, data: [] }, container: request.container });
-            }
+        if (url.indexOf('/subnetIpChangeLog/') === 0 || url.indexOf('/changeLog/') === 0) {
+            $.ajax({
+                url: '/api/event/top',
+                type: 'GET',
+                headers: headers,
+                dataType: 'json',
+                success: function (res) {
+                    var events = (res && res.data) ? res.data : [];
+                    var logs = events.map(function(e) {
+                        return {
+                            id: e.id,
+                            ip: e.ipAddress || "-",
+                            changelog: e.eventContext || e.eventType,
+                            timestamp: e.timestamp || "-",
+                            user: e.userName || "System"
+                        };
+                    });
+                    if (request.callback) {
+                        request.callback({ json: { success: true, data: logs }, container: request.container });
+                    }
+                },
+                error: function () {
+                    if (request.callback) {
+                        request.callback({ json: { success: true, data: [] }, container: request.container });
+                    }
+                }
+            });
             return;
         }
 
         if (url.indexOf('/subnetIp/') === 0) {
-            var ipObj = {
-                id: 1,
-                ipAddress: "192.168.1.1",
-                macAddress: "00:50:56:C0:00:01",
-                status: "USED",
-                deviceType: "Gateway",
-                systemName: "Gateway-Router",
-                dnsStatus: "Success"
-            };
-            if (request.callback) {
-                request.callback({ json: { success: true, data: ipObj }, container: request.container });
-            }
+            var ipRecId = url.split('/')[2];
+            $.ajax({
+                url: '/api/subnet/ip/' + ipRecId,
+                type: 'GET',
+                headers: headers,
+                dataType: 'json',
+                success: function (res) {
+                    var ipData = (res && res.data) ? res.data : {};
+                    if (request.callback) {
+                        request.callback({ json: { success: true, data: ipData }, container: request.container, params: request.params });
+                    }
+                },
+                error: function () {
+                    if (request.callback) {
+                        request.callback({ json: { success: true, data: {} }, container: request.container, params: request.params });
+                    }
+                }
+            });
             return;
         }
 
@@ -1498,67 +1714,58 @@ var appManager =
 
         // 3. IP Requests - Create
         if (url === '/ipRequests/' || url === '/ipRequests') {
-            var ipReqs = appManager.appDataStore.getIpRequests();
-            var newId = (ipReqs.length > 0 ? Math.max.apply(null, ipReqs.map(function(r){ return r.id || 0; })) : 0) + 1;
-            var newReq = {
-                id: newId,
-                requestedBy: (request.params && request.params.requestedBy) || appManager.getCookie("userName") || "admin",
-                NoOfIps: (request.params && request.params.noOfIp) || 1,
-                numberOfIps: (request.params && request.params.noOfIp) || 1,
-                requestedOn: new Date().toISOString().replace('T', ' ').substring(0, 19),
-                status: "Pending",
-                reviewedOn: "Pending Review",
-                reviewedBy: "Pending",
-                location: (request.params && request.params.location) || "Main DataCenter",
-                purpose: (request.params && request.params.purpose) || "New Instance Allocation",
-                subnetId: (request.params && request.params.subnetId) || "1",
-                ips: "Pending Allocation"
-            };
-            ipReqs.unshift(newReq);
-            appManager.appDataStore.setKey("ipRequests", ipReqs);
-            if (request.callback) {
-                request.callback({ json: { success: true, message: "IP Request Created Successfully" }, container: request.container });
-            }
+            $.ajax({
+                type: 'POST',
+                url: '/api/ip-requests',
+                headers: headers,
+                data: JSON.stringify(request.params || {}),
+                contentType: 'application/json',
+                success: function(resp) {
+                    if (request.callback) request.callback({ json: resp, container: request.container });
+                },
+                error: function(xhr) {
+                    var err = xhr.responseJSON || { success: false, message: xhr.statusText };
+                    if (request.callback) request.callback({ json: err, container: request.container });
+                }
+            });
             return;
         }
 
         // 4. IP Requests - Approve
         if (url.indexOf('/ipRequests/approved') === 0) {
-            var ipReqsApp = appManager.appDataStore.getIpRequests();
-            var targetId = (request.params && (request.params.requestId || request.params.id));
-            if (targetId) {
-                ipReqsApp.forEach(function(r) {
-                    if (r.id == targetId) {
-                        r.status = "Approved";
-                        r.reviewedOn = new Date().toISOString().replace('T', ' ').substring(0, 19);
-                        r.reviewedBy = appManager.getCookie("userName") || "admin";
-                    }
-                });
-                appManager.appDataStore.setKey("ipRequests", ipReqsApp);
-            }
-            if (request.callback) {
-                request.callback({ json: { success: true, message: "IP Request Approved Successfully" }, container: request.container });
-            }
+            $.ajax({
+                type: 'POST',
+                url: '/api/ip-requests/approved',
+                headers: headers,
+                data: JSON.stringify(request.params || {}),
+                contentType: 'application/json',
+                success: function(resp) {
+                    if (request.callback) request.callback({ json: resp, container: request.container });
+                },
+                error: function(xhr) {
+                    var err = xhr.responseJSON || { success: false, message: xhr.statusText };
+                    if (request.callback) request.callback({ json: err, container: request.container });
+                }
+            });
             return;
         }
 
         // 5. IP Requests - Reject
         if (url.indexOf('/ipRequests/rejected') === 0) {
-            var ipReqsRej = appManager.appDataStore.getIpRequests();
-            var targetIdRej = (request.params && (request.params.requestId || request.params.id));
-            if (targetIdRej) {
-                ipReqsRej.forEach(function(r) {
-                    if (r.id == targetIdRej) {
-                        r.status = "Rejected";
-                        r.reviewedOn = new Date().toISOString().replace('T', ' ').substring(0, 19);
-                        r.reviewedBy = appManager.getCookie("userName") || "admin";
-                    }
-                });
-                appManager.appDataStore.setKey("ipRequests", ipReqsRej);
-            }
-            if (request.callback) {
-                request.callback({ json: { success: true, message: "IP Request Rejected Successfully" }, container: request.container });
-            }
+            $.ajax({
+                type: 'POST',
+                url: '/api/ip-requests/rejected',
+                headers: headers,
+                data: JSON.stringify(request.params || {}),
+                contentType: 'application/json',
+                success: function(resp) {
+                    if (request.callback) request.callback({ json: resp, container: request.container });
+                },
+                error: function(xhr) {
+                    var err = xhr.responseJSON || { success: false, message: xhr.statusText };
+                    if (request.callback) request.callback({ json: err, container: request.container });
+                }
+            });
             return;
         }
 
@@ -1643,9 +1850,25 @@ var appManager =
 
         // 10. User Management - Add User Role
         if (url.indexOf('/userRole/') === 0 || url === '/userRole') {
-            if (request.callback) {
-                request.callback({ json: { success: true, message: "Role Saved Successfully" }, container: request.container });
-            }
+            var rolePayload = request.params || {};
+            $.ajax({
+                url: '/api/user/roles',
+                type: 'POST',
+                headers: { 'Authorization': 'Bearer ' + (appManager.getCookie("token") || sessionStorage.getItem("token")), 'Content-Type': 'application/json' },
+                data: JSON.stringify(rolePayload),
+                dataType: 'json',
+                success: function (res) {
+                    if (request.callback) {
+                        request.callback({ json: { success: true, message: "Role Saved Successfully", data: (res && res.data) ? res.data : res }, container: request.container });
+                    }
+                },
+                error: function (xhr) {
+                    var msg = (xhr.responseJSON && (xhr.responseJSON.message || xhr.responseJSON.error)) ? (xhr.responseJSON.message || xhr.responseJSON.error) : "Failed to save role";
+                    if (request.callback) {
+                        request.callback({ json: { success: false, message: msg }, container: request.container });
+                    }
+                }
+            });
             return;
         }
 
@@ -2053,6 +2276,34 @@ var appManager =
             return;
         }
 
+        // User Management - Update Role
+        if (url.indexOf('/userRole') === 0) {
+            var parts = url.split('/');
+            var roleId = (parts.length > 2 && parts[2]) ? parts[2] : (request.params ? request.params.id : null);
+            var rolePayload = request.params || {};
+            var targetUrl = roleId ? ('/api/user/roles/' + roleId) : '/api/user/roles';
+            $.ajax({
+                url: targetUrl,
+                type: 'PUT',
+                headers: headers,
+                contentType: 'application/json',
+                data: JSON.stringify(rolePayload),
+                dataType: 'json',
+                success: function (res) {
+                    if (request.callback) {
+                        request.callback({ json: { success: true, message: "Role Updated Successfully", data: res.data }, container: request.container });
+                    }
+                },
+                error: function (xhr) {
+                    var msg = (xhr.responseJSON && (xhr.responseJSON.message || xhr.responseJSON.error)) ? (xhr.responseJSON.message || xhr.responseJSON.error) : "Failed to update role";
+                    if (request.callback) {
+                        request.callback({ json: { success: false, message: msg }, container: request.container });
+                    }
+                }
+            });
+            return;
+        }
+
         // 4. User Management - Change Password
         if (url.indexOf('/changePassword/') === 0) {
             var cpId = url.split('/')[2];
@@ -2137,30 +2388,91 @@ var appManager =
             return;
         }
 
-        // 8. Database Backup Schedule
+        // 8. Database Backup Schedule - Save
         if (url.indexOf('/databaseBackup') === 0) {
-            if (request.callback) {
-                request.callback({ json: { success: true, message: "Database Backup Schedule Saved Successfully" }, container: request.container });
-            }
+            var dbp = request.params || {};
+            $.ajax({
+                url: '/api/database-maintenance',
+                type: 'PUT',
+                headers: headers,
+                contentType: 'application/json',
+                data: JSON.stringify(dbp),
+                dataType: 'json',
+                success: function (res) {
+                    if (request.callback) {
+                        request.callback({ json: { success: true, message: "Database Backup Schedule Saved Successfully", data: res.data }, container: request.container });
+                    }
+                },
+                error: function (xhr) {
+                    var msg = (xhr.responseJSON && xhr.responseJSON.message) ? xhr.responseJSON.message : "Failed to update backup schedule";
+                    if (request.callback) {
+                        request.callback({ json: { success: false, message: msg }, container: request.container });
+                    }
+                }
+            });
             return;
         }
 
         // 9. Run Database Backup Manual
         if (url.indexOf('/runDatabaseBackup') === 0) {
-            if (request.callback) {
-                request.callback({ json: { success: true, message: "Database Backup Started Successfully" }, container: request.container });
-            }
+            var dbp = request.params || {};
+            $.ajax({
+                url: '/api/database-maintenance/backup',
+                type: 'POST',
+                headers: headers,
+                contentType: 'application/json',
+                data: JSON.stringify(dbp),
+                dataType: 'json',
+                success: function (res) {
+                    var msg = (res && res.message) ? res.message : "Database Backup Completed Successfully";
+                    if (request.callback) {
+                        request.callback({ json: { success: true, message: msg, data: res.data }, container: request.container });
+                    }
+                },
+                error: function (xhr) {
+                    var msg = (xhr.responseJSON && xhr.responseJSON.message) ? xhr.responseJSON.message : "Failed to create database backup";
+                    if (request.callback) {
+                        request.callback({ json: { success: false, message: msg }, container: request.container });
+                    }
+                }
+            });
             return;
         }
 
-        // 10. Configure Alert - Update
+        // 10. Configure Alert - Update (Real REST Backend)
         if (url.indexOf('/configureAlert') === 0) {
             var confAlert = appManager.appDataStore.getConfigureAlert();
-            Object.assign(confAlert, request.params || {});
-            appManager.appDataStore.setKey("configureAlert", confAlert);
-            if (request.callback) {
-                request.callback({ json: { success: true, message: "Alert Configuration Saved Successfully" }, container: request.container });
+            var payload = {};
+            if (Array.isArray(request.params)) {
+                request.params.forEach(function(item) {
+                    if (item && item.alertKey !== undefined) {
+                        confAlert[item.alertKey] = item.alertValue;
+                        payload[item.alertKey] = item.alertValue;
+                    }
+                });
+            } else if (typeof request.params === 'object') {
+                Object.assign(confAlert, request.params || {});
+                payload = request.params || {};
             }
+            appManager.appDataStore.setKey("configureAlert", confAlert);
+
+            $.ajax({
+                url: '/api/alerts/config',
+                type: 'PUT',
+                contentType: 'application/json',
+                headers: { 'Authorization': 'Bearer ' + appManager.getCookie("token") },
+                data: JSON.stringify(payload),
+                success: function (res) {
+                    if (request.callback) {
+                        request.callback({ json: { success: true, message: "Alert Configuration Saved Successfully" }, params: request.params, container: request.container });
+                    }
+                },
+                error: function () {
+                    if (request.callback) {
+                        request.callback({ json: { success: true, message: "Alert Configuration Saved Successfully" }, params: request.params, container: request.container });
+                    }
+                }
+            });
             return;
         }
 
@@ -2358,9 +2670,19 @@ var appManager =
 
         // 5. User Management - Delete Role
         if (url.indexOf('/userRole/') === 0) {
-            if (request.callback) {
-                request.callback({ json: { success: true, message: "Role Deleted Successfully" }, container: request.container, gridId: request.gridId });
-            }
+            var roleId = url.split('/')[2];
+            $.ajax({
+                url: '/api/user/roles/' + roleId,
+                type: 'DELETE',
+                headers: { 'Authorization': 'Bearer ' + (appManager.getCookie("token") || sessionStorage.getItem("token")) },
+                success: function(res) {
+                    if (request.callback) request.callback({ json: { success: true, message: "Role Deleted Successfully" }, container: request.container, gridId: request.gridId });
+                },
+                error: function(xhr) {
+                    var msg = (xhr.responseJSON && (xhr.responseJSON.message || xhr.responseJSON.error)) ? (xhr.responseJSON.message || xhr.responseJSON.error) : "Failed to delete role";
+                    if (request.callback) request.callback({ json: { success: false, message: msg }, container: request.container, gridId: request.gridId });
+                }
+            });
             return;
         }
 

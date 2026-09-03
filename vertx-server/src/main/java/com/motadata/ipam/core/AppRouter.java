@@ -2,19 +2,27 @@ package com.motadata.ipam.core;
 
 
 import com.motadata.ipam.alert.AlertRouter;
+import com.motadata.ipam.alert.AlertService;
 import com.motadata.ipam.auth.AuthRouter;
 import com.motadata.ipam.core.health.HealthRouter;
 import com.motadata.ipam.core.middleware.CorrelationIdHandler;
 import com.motadata.ipam.core.model.ApiResponse;
+import com.motadata.ipam.dashboard.DashboardRouter;
+import com.motadata.ipam.dashboard.DashboardService;
 import com.motadata.ipam.event.EventRouter;
+import com.motadata.ipam.event.EventService;
 import com.motadata.ipam.gateway.GatewayRouter;
+import com.motadata.ipam.gateway.GatewayService;
 import com.motadata.ipam.maintenance.DatabaseMaintenanceRouter;
+import com.motadata.ipam.request.IpRequestRouter;
 import com.motadata.ipam.rogue.RogueDetectionRouter;
+import com.motadata.ipam.rogue.RogueDetectionService;
 import com.motadata.ipam.scanner.GoPluginBridge;
 import com.motadata.ipam.security.JwtTokenService;
 import com.motadata.ipam.security.RbacAuthHandler;
 import com.motadata.ipam.security.SecurityUtil;
 import com.motadata.ipam.subnet.SubnetRouter;
+import com.motadata.ipam.subnet.SubnetService;
 import com.motadata.ipam.user.UserRouter;
 
 import io.vertx.core.Vertx;
@@ -84,6 +92,18 @@ public class AppRouter {
         UserRouter.register(router, mysqlPool, vertx, rbacAuthHandler);
 
         DatabaseMaintenanceRouter.register(router, mysqlPool, vertx, rbacAuthHandler);
+
+        IpRequestRouter.register(router, mysqlPool, vertx, rbacAuthHandler);
+
+        DashboardService dashboardService = new DashboardService(
+                new SubnetService(mysqlPool, vertx),
+                new GatewayService(mysqlPool, vertx),
+                new EventService(mysqlPool, vertx),
+                new RogueDetectionService(mysqlPool, vertx),
+                new AlertService(mysqlPool, vertx),
+                mysqlPool
+        );
+        DashboardRouter.register(router, dashboardService, rbacAuthHandler);
 
         // 4. Mount Frontend Static Web Assets
         router.route("/*").handler(StaticHandler.create("webroot").setCachingEnabled(false).setIndexPage("index.html"));
