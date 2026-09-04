@@ -1,21 +1,20 @@
 package com.motadata.ipam.security;
 
-
 import com.motadata.ipam.core.model.ApiResponse;
-
-import io.vertx.core.json.JsonObject;
 
 import io.vertx.ext.web.RoutingContext;
 
-import java.util.regex.Pattern;
-
 /**
- * SecurityUtil provides centralized defense against IDOR (Insecure Direct Object References),
- * SQL Injection, parameter tampering, and clickjacking/MIME-sniffing attacks.
+ * SecurityUtil provides centralized defense against HTTP header vulnerabilities
+ * and path parameter tampering.
  */
 public class SecurityUtil {
 
-    private static final Pattern SAFE_SQL_IDENTIFIER = Pattern.compile("^[a-zA-Z0-9_]+$");
+    private SecurityUtil() {
+
+        // Prevent instantiation
+
+    }
 
     /**
      * Injects standard enterprise security headers into every HTTP response.
@@ -30,55 +29,6 @@ public class SecurityUtil {
                 .putHeader("Referrer-Policy", "strict-origin-when-cross-origin");
 
         ctx.next();
-
-    }
-
-    /**
-     * Prevents IDOR (Broken Object Level Authorization).
-     * Ensures that non-admin users can ONLY access/modify resources they own.
-     */
-    public static boolean requireOwnershipOrAdmin(RoutingContext ctx, Long resourceOwnerId) {
-
-        io.vertx.core.json.JsonObject currentUser = ctx.get("currentUser");
-
-        if (currentUser == null) {
-
-            ApiResponse.sendError(ctx, 401, "UNAUTHORIZED", "Authentication required");
-
-            return false;
-
-        }
-
-        Long roleId = currentUser.getLong("roleId");
-
-        String roleName = currentUser.getString("roleName");
-
-        boolean isAdmin = (roleId != null && roleId == 1L) || "ROLE_ADMIN".equalsIgnoreCase(roleName) || "ADMIN".equalsIgnoreCase(roleName);
-
-        if (isAdmin) {
-
-            return true;
-
-        }
-
-        Long userId = currentUser.getLong("id");
-
-        if (userId == null) {
-
-            userId = currentUser.getLong("userId");
-
-        }
-
-        if (resourceOwnerId != null && resourceOwnerId.equals(userId)) {
-
-            return true;
-
-        }
-
-        // Reject unauthorized access attempts
-        ApiResponse.sendError(ctx, 403, "FORBIDDEN_OBJECT_ACCESS", "Access denied: You do not have permission to access this resource.");
-
-        return false;
 
     }
 
@@ -119,21 +69,6 @@ public class SecurityUtil {
             return null;
 
         }
-
-    }
-
-    /**
-     * Sanitizes dynamic column names for ORDER BY / GROUP BY clauses to prevent SQL injection.
-     */
-    public static boolean isValidSqlIdentifier(String identifier) {
-
-        if (identifier == null || identifier.trim().isEmpty()) {
-
-            return false;
-
-        }
-
-        return SAFE_SQL_IDENTIFIER.matcher(identifier.trim()).matches();
 
     }
 

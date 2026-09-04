@@ -7,10 +7,9 @@ import io.vertx.core.json.JsonObject;
 
 import io.vertx.ext.web.RoutingContext;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 import java.lang.management.ManagementFactory;
-
 import java.time.Instant;
 
 /**
@@ -18,11 +17,11 @@ import java.time.Instant;
  */
 public class HealthHandler {
 
-    private final MySQLPool mysqlPool;
+    private final Pool mysqlPool;
 
     private final long startTime;
 
-    public HealthHandler(MySQLPool mysqlPool) {
+    public HealthHandler(Pool mysqlPool) {
 
         this.mysqlPool = mysqlPool;
 

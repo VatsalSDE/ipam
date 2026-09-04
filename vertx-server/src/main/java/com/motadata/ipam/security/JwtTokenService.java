@@ -25,9 +25,7 @@ import org.slf4j.Logger;
 
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-
-import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * JwtTokenService manages issuance and verification of signed JWT Bearer tokens.
@@ -38,7 +36,7 @@ public class JwtTokenService {
 
     private final JWTAuth jwtAuth;
 
-    private static final java.util.concurrent.atomic.AtomicBoolean INITIALIZED_LOGGED = new java.util.concurrent.atomic.AtomicBoolean(false);
+    private static final AtomicBoolean INITIALIZED_LOGGED = new AtomicBoolean(false);
 
     public JwtTokenService(Vertx vertx) {
 
@@ -141,16 +139,9 @@ public class JwtTokenService {
                         return Future.failedFuture("Invalid token type: Expected refresh token");
 
                     }
-
                     return Future.succeededFuture(claims);
 
                 });
-
-    }
-
-    public JWTAuth getJwtAuth() {
-
-        return jwtAuth;
 
     }
 

@@ -17,6 +17,8 @@ import org.slf4j.Logger;
 
 import org.slf4j.LoggerFactory;
 
+import java.util.function.Consumer;
+
 /**
  * RbacAuthHandler provides Bearer token authentication and role/permission authorization
  * using native Vert.x JsonObject data.
@@ -35,11 +37,43 @@ public class RbacAuthHandler {
 
     public void authenticate(RoutingContext ctx) {
 
+        authenticateAndRun(ctx, principal -> ctx.next());
+
+    }
+
+    public Handler<RoutingContext> requirePermission(String permission) {
+
+        return ctx -> {
+
+            JsonObject user = ctx.get("currentUser");
+
+            if (user == null) {
+
+                authenticateAndRun(ctx, principal -> checkPermissionAndProceed(ctx, principal, permission));
+
+                return;
+
+            }
+
+            checkPermissionAndProceed(ctx, user, permission);
+
+        };
+
+    }
+
+    public Handler<RoutingContext> authenticateHandler() {
+
+        return this::authenticate;
+
+    }
+
+    private void authenticateAndRun(RoutingContext ctx, Consumer<JsonObject> onSuccessAction) {
+
         String token = extractToken(ctx);
 
         if (token == null || token.isEmpty()) {
 
-            ApiResponse.sendError(ctx, 401, "UNAUTHORIZED", "Missing or invalid Authorization Bearer header");
+            ApiResponse.sendError(ctx, 401, "UNAUTHORIZED", "Authentication required: Missing or invalid Authorization Bearer token");
 
             return;
 
@@ -54,7 +88,7 @@ public class RbacAuthHandler {
 
                     ctx.put("currentUserId", principal.getLong("userId"));
 
-                    ctx.next();
+                    onSuccessAction.accept(principal);
 
                 })
                 .onFailure(err -> {
@@ -74,110 +108,6 @@ public class RbacAuthHandler {
                     }
 
                 });
-
-    }
-
-    public Handler<RoutingContext> requirePermission(String permission) {
-
-        return ctx -> {
-
-            JsonObject user = ctx.get("currentUser");
-
-            // here have checked is the user is null because it can hapen that this handlers is called directly without the authenticate so might not gtet the context of the user so that's why
-
-            if (user == null) {
-
-                String token = extractToken(ctx);
-
-                if (token == null || token.isEmpty()) {
-
-                    ApiResponse.sendError(ctx, 401, "UNAUTHORIZED", "Authentication required");
-
-                    return;
-
-                }
-
-                jwtTokenService.verifyToken(token)
-                        .onSuccess(principal -> {
-
-                            ctx.put("currentUser", principal);
-
-                            ctx.put("currentUsername", principal.getString("sub"));
-
-                            ctx.put("currentUserId", principal.getLong("userId"));
-
-                            checkPermissionAndProceed(ctx, principal, permission);
-
-                        })
-                        .onFailure(err -> {
-
-                            String msg = err.getMessage() != null ? err.getMessage().toLowerCase() : "";
-
-                            if (msg.contains("expired") || msg.contains("expiration")) {
-
-                                ApiResponse.sendError(ctx, 401, "TOKEN_EXPIRED", "Access token has expired. Please refresh token.");
-
-                            } else {
-
-                                ApiResponse.sendError(ctx, 401, "INVALID_TOKEN", "Token validation failed: " + err.getMessage());
-
-                            }
-
-                        });
-
-                return;
-
-            }
-
-            checkPermissionAndProceed(ctx, user, permission);
-
-        };
-
-    }
-
-    public Handler<RoutingContext> requireRole(String requiredRole) {
-
-        return ctx -> {
-
-            JsonObject user = ctx.get("currentUser");
-
-            if (user == null) {
-
-                ApiResponse.sendError(ctx, 401, "UNAUTHORIZED", "Authentication required");
-
-                return;
-
-            }
-
-            String roleName = user.getString("roleName");
-
-            Long roleId = user.getLong("roleId");
-
-            boolean hasRole = requiredRole.equalsIgnoreCase(roleName) || "ROLE_ADMIN".equalsIgnoreCase(roleName) || (roleId != null && roleId == 1L);
-
-            if (hasRole) {
-
-                ctx.next();
-
-            } else {
-
-                ApiResponse.sendError(ctx, 403, "FORBIDDEN", "Access denied: Role " + requiredRole + " required");
-
-            }
-
-        };
-
-    }
-
-    public Handler<RoutingContext> requireAdmin() {
-
-        return requireRole("ROLE_ADMIN");
-
-    }
-
-    public Handler<RoutingContext> authenticateHandler() {
-
-        return this::authenticate;
 
     }
 
@@ -229,6 +159,13 @@ public class RbacAuthHandler {
     }
 
     private String extractToken(RoutingContext ctx) {
+
+//        Checks 3 locations in fallback order:
+//
+//        1. Standard Header: Authorization: Bearer <jwt> (used by REST clients, Postman, mobile apps).
+//        2. Alternative Header: accessToken: <jwt> (used by custom frontend AJAX interceptors).
+//        3. Browser Cookie: Cookie: token=<jwt> (used by standard web browser navigation).
+
 
         String authHeader = ctx.request().getHeader("Authorization");
 

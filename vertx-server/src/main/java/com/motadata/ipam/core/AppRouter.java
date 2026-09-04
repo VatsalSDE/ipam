@@ -33,9 +33,11 @@ import io.vertx.ext.web.handler.BodyHandler;
 
 import io.vertx.ext.web.handler.LoggerHandler;
 
+import io.vertx.ext.web.handler.TimeoutHandler;
+
 import io.vertx.ext.web.handler.StaticHandler;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 /**
  * AppRouter is the central router compositor that registers global middleware,
@@ -43,7 +45,7 @@ import io.vertx.mysqlclient.MySQLPool;
  */
 public class AppRouter {
 
-    public static Router create(Vertx vertx, MySQLPool mysqlPool, GoPluginBridge goPluginBridge, JwtTokenService jwtTokenService, RbacAuthHandler rbacAuthHandler) {
+    public static Router create(Vertx vertx, Pool mysqlPool, GoPluginBridge goPluginBridge, JwtTokenService jwtTokenService, RbacAuthHandler rbacAuthHandler) {
 
         Router router = Router.router(vertx);
 
@@ -52,12 +54,29 @@ public class AppRouter {
 //     1. CorrelationIdHandler ──► Injects X-Correlation-ID header & SLF4J MDC
 //     2. SecurityUtil         ──► Applies nosniff, DENY frame, HSTS, XSS headers
 //     3. LoggerHandler        ──► Logs incoming requests (Method, URI, Status)
-//     4. BodyHandler          ──► Parses JSON request bodies into memory buffer
+//     4. TimeoutHandler       ──► Enforces 30-second SLA timeout on hanging requests
+//     5. BodyHandler          ──► Parses JSON request bodies into memory buffer
         router.route().handler(CorrelationIdHandler.create());
 
-        router.route().handler(SecurityUtil::applySecurityHeaders);
+        router.route().handler(SecurityUtil::applySecurityHeaders);    // Java Method Reference (::): SecurityUtil.java:public static void applySecurityHeaders(RoutingContext ctx)
 
         router.route().handler(LoggerHandler.create());
+
+        TimeoutHandler timeoutHandler = TimeoutHandler.create(30000);
+
+        router.route().handler(ctx -> {
+
+            if (ctx.normalizedPath().startsWith("/api/alerts/stream")) {
+
+                ctx.next();
+
+            } else {
+
+                timeoutHandler.handle(ctx);
+
+            }
+
+        });
 
         router.route().handler(BodyHandler.create());
 
@@ -66,6 +85,8 @@ public class AppRouter {
 //     router.route().failureHandler(ApiResponse::handleFailure)
 //     ├── Catches uncaught runtime exceptions (Returns clean 500 JSON)
 //     └── Catches PoolQueueFullException (Returns 503 + Retry-After backpressure)
+        // global failure handler if suppose nullpointer or else exception occurs and all
+        // Catches anything that slipped through without being handled.
         router.route().failureHandler(ApiResponse::handleFailure);
 
 //        STAGE 3: Modular Domain Sub-Routers (RBAC & Business Endpoints)
@@ -74,6 +95,10 @@ public class AppRouter {
 //     ├── AuthRouter     ──► /api/auth/login, /refresh, /logout, /me
 //     ├── SubnetRouter   ──► /api/subnet, /ips, /check, /scan
 //     └── GatewayRouter  ──► /api/gateway, /discovered-subnet
+
+//        Order Matters:
+//      • If BodyHandler didn't run first, when your controller calls ctx.body().asJsonObject(), the body would be empty/null because the network stream hasn't been read into memory yet!
+//      • Running BodyHandler upfront ensures that every subsequent controller automatically receives a parsed JSON body.
 
         HealthRouter.register(router, mysqlPool);
 

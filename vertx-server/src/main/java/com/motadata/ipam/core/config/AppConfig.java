@@ -54,7 +54,7 @@ public class AppConfig {
 
     private int pluginWorkerPoolSize = 20;
 
-    private int verticleInstances = Math.min(4, Math.max(1, Runtime.getRuntime().availableProcessors()));
+    private int verticleInstances = Math.min(4, eventLoopPoolSize);
 
     private long blockedThreadCheckIntervalMs = 2000;
 
@@ -389,27 +389,10 @@ public class AppConfig {
     }
 
     public int getDbPoolMaxSize() {
-
         return dbPoolMaxSize;
-
-    }
-
-    public void setDbPoolMaxSize(int dbPoolMaxSize) {
-
-        this.dbPoolMaxSize = dbPoolMaxSize;
-
     }
 
     public int getDbPoolMaxWaitQueue() {
-
         return dbPoolMaxWaitQueue;
-
     }
-
-    public void setDbPoolMaxWaitQueue(int dbPoolMaxWaitQueue) {
-
-        this.dbPoolMaxWaitQueue = dbPoolMaxWaitQueue;
-
-    }
-
 }

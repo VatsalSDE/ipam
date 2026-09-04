@@ -1,14 +1,33 @@
 <configuration>
+    <property name="LOG_DIR" value="logs"/>
+    <property name="LOG_FILE" value="ipam-server"/>
+
+    <!-- 1. Colorized Console Appender with Correlation ID -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %highlight(%-5level) %cyan(%logger{36}) [%magenta(corrId:%X{correlationId:-main})] - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- 2. Rolling File Appender (Saved to disk with daily rotation) -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/${LOG_FILE}.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/${LOG_FILE}.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [corrId:%X{correlationId:-main}] - %msg%n</pattern>
         </encoder>
     </appender>
 
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
     </root>
 
+    <!-- Detailed debugging for Motadata IPAM packages -->
     <logger name="com.motadata.ipam" level="DEBUG"/>
     <logger name="io.vertx" level="INFO"/>
 </configuration>

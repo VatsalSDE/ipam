@@ -51,14 +51,14 @@ public final class DbQueries {
     public static final String LIST_SUBNETS_ALL =
             "SELECT id, subnet_name as subnetName, subnet_address as subnetAddress, subnet_cidr as subnetCidr, " +
             "subnet_mask as subnetMask, description, location, total_ip as totalIp, available_ip as availableIp, " +
-            "used_ip as usedIp, schedule_status as scheduleStatus, schedule_hour as scheduleHour, " +
+            "used_ip as usedIp, transient_ip as transientIp, schedule_status as scheduleStatus, schedule_hour as scheduleHour, " +
             "last_scan_time as lastScanTime, created_date as createdDate, modified_date as modifiedDate " +
             "FROM subnet_details ORDER BY id DESC LIMIT ? OFFSET ?";
 
     public static final String LIST_SUBNETS_SEARCH =
             "SELECT id, subnet_name as subnetName, subnet_address as subnetAddress, subnet_cidr as subnetCidr, " +
             "subnet_mask as subnetMask, description, location, total_ip as totalIp, available_ip as availableIp, " +
-            "used_ip as usedIp, schedule_status as scheduleStatus, schedule_hour as scheduleHour, " +
+            "used_ip as usedIp, transient_ip as transientIp, schedule_status as scheduleStatus, schedule_hour as scheduleHour, " +
             "last_scan_time as lastScanTime, created_date as createdDate, modified_date as modifiedDate " +
             "FROM subnet_details WHERE subnet_name LIKE ? OR subnet_address LIKE ? " +
             "ORDER BY id DESC LIMIT ? OFFSET ?";
@@ -66,7 +66,7 @@ public final class DbQueries {
     public static final String GET_SUBNET_BY_ID =
             "SELECT id, subnet_name as subnetName, subnet_address as subnetAddress, subnet_cidr as subnetCidr, " +
             "subnet_mask as subnetMask, description, location, total_ip as totalIp, available_ip as availableIp, " +
-            "used_ip as usedIp, schedule_status as scheduleStatus, schedule_hour as scheduleHour, " +
+            "used_ip as usedIp, transient_ip as transientIp, schedule_status as scheduleStatus, schedule_hour as scheduleHour, " +
             "last_scan_time as lastScanTime, created_date as createdDate, modified_date as modifiedDate " +
             "FROM subnet_details WHERE id = ?";
 
@@ -82,9 +82,22 @@ public final class DbQueries {
     public static final String INSERT_SUBNET =
             "INSERT INTO subnet_details " +
             "(subnet_name, subnet_address, subnet_cidr, subnet_mask, description, location, " +
-            "total_ip, used_ip, available_ip, schedule_status, schedule_hour, " +
+            "total_ip, used_ip, available_ip, transient_ip, schedule_status, schedule_hour, " +
             "is_local_subnet, allow_icmp, allow_dns, is_ipv6, created_date, modified_date) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 1, 1, 0, 0, NOW(), NOW())";
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, 1, 1, 0, 0, NOW(), NOW())";
+
+    public static final String UPDATE_SUBNET =
+            "UPDATE subnet_details SET " +
+            "subnet_name = COALESCE(?, subnet_name), " +
+            "description = COALESCE(?, description), " +
+            "location = COALESCE(?, location), " +
+            "schedule_status = COALESCE(?, schedule_status), " +
+            "schedule_hour = COALESCE(?, schedule_hour), " +
+            "modified_date = NOW() " +
+            "WHERE id = ?";
+
+    public static final String DELETE_SUBNET_BY_ID =
+            "DELETE FROM subnet_details WHERE id = ?";
 
     public static final String INSERT_SUBNET_IPS_BATCH =
             "INSERT INTO subnet_ip_details (subnet_id_id, ip_address, status, authenticity, created_date, deactive_status) " +
@@ -93,8 +106,8 @@ public final class DbQueries {
     public static final String DELETE_SUBNET_IPS =
             "DELETE FROM subnet_ip_details WHERE subnet_id_id = ?";
 
-    public static final String DELETE_SUBNET_BY_ID =
-            "DELETE FROM subnet_details WHERE id = ?";
+    public static final String COUNT_SUBNET_IPS =
+            "SELECT COUNT(*) as total FROM subnet_ip_details WHERE subnet_id_id = ?";
 
     // =========================================================================
     // Subnet IP Address Queries
@@ -104,13 +117,14 @@ public final class DbQueries {
             "SELECT COUNT(*) as total FROM subnet_ip_details WHERE subnet_id_id = ?";
 
     public static final String SELECT_SUBNET_IPS_BASE =
-            "SELECT id, ip_address, mac_address, status, device_type, host_name, authenticity " +
+            "SELECT id, ip_address, mac_address, status, device_type, host_name, authenticity, " +
+            "ip_to_dns, dns_to_ip, last_alive_time " +
             "FROM subnet_ip_details WHERE subnet_id_id = ?";
 
     public static final String SELECT_SUBNET_IP_BY_ID =
             "SELECT id, ip_address as ipAddress, mac_address as macAddress, status, " +
             "device_type as deviceType, host_name as hostName, authenticity, " +
-            "forward_lookup as ipToDns, reverse_lookup as dnsToIp, last_alive_time as lastAliveTime " +
+            "ip_to_dns as ipToDns, dns_to_ip as dnsToIp, last_alive_time as lastAliveTime " +
             "FROM subnet_ip_details WHERE id = ?";
 
     // =========================================================================
@@ -128,10 +142,13 @@ public final class DbQueries {
             "SELECT id, ip_address FROM subnet_ip_details WHERE subnet_id_id = ? AND id > ? ORDER BY id ASC LIMIT ?";
 
     public static final String SCANNER_UPDATE_IP_STATUS_USED =
-            "UPDATE subnet_ip_details SET status = 'USED' WHERE subnet_id_id = ? AND ip_address = ?";
+            "UPDATE subnet_ip_details SET previous_status = status, status = 'USED', last_alive_time = NOW(), ip_to_dns = 'Success', dns_to_ip = 'Success', modified_date = NOW() WHERE subnet_id_id = ? AND ip_address = ?";
+
+    public static final String SCANNER_UPDATE_IP_STATUS_TRANSIENT =
+            "UPDATE subnet_ip_details SET previous_status = 'USED', status = 'TRANSIENT', modified_date = NOW() WHERE subnet_id_id = ? AND ip_address = ? AND status = 'USED'";
 
     public static final String SCANNER_UPDATE_IP_STATUS_AVAILABLE =
-            "UPDATE subnet_ip_details SET status = 'AVAILABLE' WHERE subnet_id_id = ? AND ip_address = ? AND status = 'USED'";
+            "UPDATE subnet_ip_details SET previous_status = 'TRANSIENT', status = 'AVAILABLE', modified_date = NOW() WHERE subnet_id_id = ? AND ip_address = ? AND status = 'TRANSIENT' AND (last_alive_time IS NULL OR last_alive_time <= DATE_SUB(NOW(), INTERVAL 7 DAY))";
 
     public static final String SCANNER_RECALCULATE_COUNTERS =
             "UPDATE subnet_details sd " +
@@ -139,12 +156,16 @@ public final class DbQueries {
             "    SELECT " +
             "        subnet_id_id, " +
             "        SUM(CASE WHEN status = 'USED' THEN 1 ELSE 0 END) as used_count, " +
-            "        SUM(CASE WHEN status = 'AVAILABLE' THEN 1 ELSE 0 END) as avail_count " +
+            "        SUM(CASE WHEN status = 'AVAILABLE' THEN 1 ELSE 0 END) as avail_count, " +
+            "        SUM(CASE WHEN status = 'TRANSIENT' THEN 1 ELSE 0 END) as transient_count " +
             "    FROM subnet_ip_details " +
             "    WHERE subnet_id_id = ? " +
             "    GROUP BY subnet_id_id" +
             ") counts ON sd.id = counts.subnet_id_id " +
-            "SET sd.used_ip = counts.used_count, sd.available_ip = counts.avail_count, sd.last_scan_time = NOW() " +
+            "SET sd.used_ip = counts.used_count, " +
+            "    sd.available_ip = counts.avail_count, " +
+            "    sd.transient_ip = counts.transient_count, " +
+            "    sd.last_scan_time = NOW() " +
             "WHERE sd.id = ?";
 
     public static final String SCHEDULER_FIND_DUE_SUBNETS =
@@ -410,14 +431,67 @@ public final class DbQueries {
             "WHERE id = ?";
 
     public static final String UPDATE_IP_STATUS_RESERVED =
-            "UPDATE subnet_ip_details SET status = 'Reserved', previous_status = 'Available', modified_date = NOW() WHERE ip_address = ?";
+            "UPDATE subnet_ip_details SET status = 'RESERVED', previous_status = 'AVAILABLE', modified_date = NOW() WHERE ip_address = ?";
 
     public static final String FIND_IP_DETAILS_BY_IP =
             "SELECT id, ip_address, subnet_id_id as subnetId FROM subnet_ip_details WHERE ip_address = ?";
 
     public static final String INSERT_IP_CHANGE_LOG =
             "INSERT INTO ip_change_log (user, ip_address_id, subnet_id, ip, timestamp, changelog) " +
-            "VALUES (?, ?, ?, ?, NOW(), 'Status changed from Available to Reserved via IP Request Approval')";
+            "VALUES (?, ?, ?, ?, NOW(), 'Status changed from AVAILABLE to RESERVED via IP Request Approval')";
+
+    // =========================================================================
+    // IP Range Operations & Bulk Modification Queries
+    // =========================================================================
+
+    public static final String UPDATE_SUBNET_IP_RANGE_STATUS =
+            "UPDATE subnet_ip_details SET previous_status = status, status = ? " +
+            "WHERE subnet_id_id = ? AND INET_ATON(ip_address) BETWEEN INET_ATON(?) AND INET_ATON(?)";
+
+    public static final String INSERT_IP_RANGE_CHANGE_LOG =
+            "INSERT INTO ip_change_log (user, ip_address_id, subnet_id, ip, timestamp, changelog) " +
+            "SELECT ?, id, subnet_id_id, ip_address, NOW(), ? " +
+            "FROM subnet_ip_details WHERE subnet_id_id = ? AND INET_ATON(ip_address) BETWEEN INET_ATON(?) AND INET_ATON(?)";
+
+    public static final String SYNC_SUBNET_IP_COUNTS_BY_ID =
+            "UPDATE subnet_details sd " +
+            "JOIN (" +
+            "    SELECT " +
+            "        subnet_id_id, " +
+            "        SUM(CASE WHEN status IN ('USED', 'RESERVED') THEN 1 ELSE 0 END) as used_count, " +
+            "        SUM(CASE WHEN status = 'AVAILABLE' THEN 1 ELSE 0 END) as avail_count, " +
+            "        SUM(CASE WHEN status = 'TRANSIENT' THEN 1 ELSE 0 END) as transient_count " +
+            "    FROM subnet_ip_details " +
+            "    WHERE subnet_id_id = ? " +
+            "    GROUP BY subnet_id_id" +
+            ") counts ON sd.id = counts.subnet_id_id " +
+            "SET sd.used_ip = counts.used_count, " +
+            "    sd.available_ip = counts.avail_count, " +
+            "    sd.transient_ip = counts.transient_count " +
+            "WHERE sd.id = ?";
+
+    public static final String SYNC_ALL_SUBNET_IP_COUNTS =
+            "UPDATE subnet_details sd " +
+            "JOIN (" +
+            "    SELECT " +
+            "        subnet_id_id, " +
+            "        SUM(CASE WHEN status IN ('USED', 'RESERVED') THEN 1 ELSE 0 END) as used_count, " +
+            "        SUM(CASE WHEN status = 'AVAILABLE' THEN 1 ELSE 0 END) as avail_count, " +
+            "        SUM(CASE WHEN status = 'TRANSIENT' THEN 1 ELSE 0 END) as transient_count " +
+            "    FROM subnet_ip_details " +
+            "    GROUP BY subnet_id_id" +
+            ") counts ON sd.id = counts.subnet_id_id " +
+            "SET sd.used_ip = counts.used_count, " +
+            "    sd.available_ip = counts.avail_count, " +
+            "    sd.transient_ip = counts.transient_count";
+
+    public static final String SELECT_IP_CHANGE_LOG_BY_IP_ID =
+            "SELECT id, ip_address_id as ipAddressId, subnet_id as subnetId, " +
+            "DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:%s') as timestamp, " +
+            "user, ip, changelog " +
+            "FROM ip_change_log WHERE ip_address_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?";
 
 }
+
+
 

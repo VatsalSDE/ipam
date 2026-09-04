@@ -18,18 +18,13 @@ import io.vertx.core.Promise;
 
 import io.vertx.core.Vertx;
 
+import io.vertx.core.ThreadingModel;
 import io.vertx.core.VertxOptions;
-
 import io.vertx.core.http.HttpServer;
-
 import io.vertx.core.json.JsonObject;
-
 import io.vertx.ext.web.Router;
-
-import io.vertx.mysqlclient.MySQLPool;
-
+import io.vertx.sqlclient.Pool;
 import org.slf4j.Logger;
-
 import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.TimeUnit;
@@ -41,7 +36,7 @@ public class MainVerticle extends AbstractVerticle {
 
     private static final Logger logger = LoggerFactory.getLogger(MainVerticle.class);
 
-    private MySQLPool mysqlPool;
+    private Pool mysqlPool;
 
     private GoPluginBridge goPluginBridge;
 
@@ -86,7 +81,7 @@ public class MainVerticle extends AbstractVerticle {
     private void deployWorkerVerticles() {
 
         DeploymentOptions scannerOpts = new DeploymentOptions()
-                .setWorker(true)
+                .setThreadingModel(ThreadingModel.WORKER)
                 .setWorkerPoolName("subnet-scanner-worker-pool")
                 .setWorkerPoolSize(5);
 
@@ -95,7 +90,7 @@ public class MainVerticle extends AbstractVerticle {
                 .onFailure(err -> logger.error("Failed to deploy ScanWorkerVerticle: {}", err.getMessage()));
 
         DeploymentOptions subnetOpts = new DeploymentOptions()
-                .setWorker(true)
+                .setThreadingModel(ThreadingModel.WORKER)
                 .setWorkerPoolName("subnet-ops-worker-pool")
                 .setWorkerPoolSize(5);
 
@@ -184,10 +179,7 @@ public class MainVerticle extends AbstractVerticle {
 
         // 2. Enterprise DeploymentOptions (Multi-core Instance Scaling)
         DeploymentOptions deploymentOptions = new DeploymentOptions()
-                .setInstances(config.getVerticleInstances())
-                .setConfig(new JsonObject()
-                        .put("server.port", config.getServerPort())
-                        .put("server.host", config.getServerHost()));
+                .setInstances(config.getVerticleInstances());
 
         logger.info("Deploying {} verticle instances across {} event loops and {} worker threads...",
                 config.getVerticleInstances(), config.getEventLoopPoolSize(), config.getWorkerPoolSize());

@@ -1,15 +1,14 @@
 package com.motadata.ipam.core.health;
 
 import io.vertx.ext.web.Router;
-
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 /**
  * HealthRouter registers health check and system diagnostic endpoints.
  */
 public class HealthRouter {
 
-    public static void register(Router router, MySQLPool mysqlPool) {
+    public static void register(Router router, Pool mysqlPool) {
 
         HealthHandler healthHandler = new HealthHandler(mysqlPool);
 

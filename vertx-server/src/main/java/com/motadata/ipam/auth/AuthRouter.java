@@ -1,19 +1,19 @@
 package com.motadata.ipam.auth;
 
-
 import com.motadata.ipam.security.JwtTokenService;
+
 import com.motadata.ipam.security.RbacAuthHandler;
 
 import io.vertx.ext.web.Router;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 /**
  * AuthRouter registers all authentication and session endpoints.
  */
 public class AuthRouter {
 
-    public static void register(Router router, MySQLPool mysqlPool, JwtTokenService jwtTokenService, RbacAuthHandler rbacAuthHandler) {
+    public static void register(Router router, Pool mysqlPool, JwtTokenService jwtTokenService, RbacAuthHandler rbacAuthHandler) {
 
         AuthHandler authHandler = new AuthHandler(mysqlPool, jwtTokenService);
 

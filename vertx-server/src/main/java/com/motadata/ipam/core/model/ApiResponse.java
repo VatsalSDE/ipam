@@ -169,12 +169,19 @@ ApiResponse {
 
         }
 
+        if (ctx.response().ended() || ctx.response().headWritten()) {
+
+            return;
+
+        }
+
         ctx.response()
                 .putHeader("Content-Type", "application/json")
                 .setStatusCode(statusCode)
                 .end(error("SERVER_ERROR", errorMsg).encodePrettily());
 
     }
+
 
     public boolean isSuccess() {
 

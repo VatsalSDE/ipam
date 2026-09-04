@@ -1,12 +1,18 @@
 package com.motadata.ipam.auth;
 
-
 import com.motadata.ipam.core.database.DbQueries;
+
 import com.motadata.ipam.core.database.DbUtil;
+
 import com.motadata.ipam.core.model.ApiResponse;
+
 import com.motadata.ipam.event.EventService;
+
 import com.motadata.ipam.security.JwtTokenService;
+
 import com.motadata.ipam.security.PasswordUtil;
+
+import io.vertx.core.Future;
 
 import io.vertx.core.http.Cookie;
 
@@ -14,7 +20,7 @@ import io.vertx.core.json.JsonObject;
 
 import io.vertx.ext.web.RoutingContext;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 import io.vertx.sqlclient.Row;
 
@@ -39,18 +45,20 @@ public class AuthHandler {
 
     private static final int DEFAULT_REFRESH_EXPIRATION_SEC = 604800; // 7 days
 
-    private final MySQLPool mysqlPool;
+    // Wildcard superuser permissions for Admin role (Unlocks all frontend tabs and backend APIs)
+    private static final List<String> ADMIN_PERMISSIONS = List.of("ROLE_ADMIN", "ALL", "PERM_ALL");
+
+    private final Pool mysqlPool;
 
     private final JwtTokenService jwtTokenService;
 
-    public AuthHandler(MySQLPool mysqlPool, JwtTokenService jwtTokenService) {
+    public AuthHandler(Pool mysqlPool, JwtTokenService jwtTokenService) {
 
         this.mysqlPool = mysqlPool;
 
         this.jwtTokenService = jwtTokenService;
 
     }
-
 
     public void login(RoutingContext ctx) {
 
@@ -64,11 +72,11 @@ public class AuthHandler {
 
         }
 
-        String username = body.getString("username");
+        String rawUsername = body.getString("username");
 
-        String password = body.getString("password");
+        String rawPassword = body.getString("password");
 
-        if (username == null || username.isBlank() || password == null || password.isBlank()) {
+        if (rawUsername == null || rawUsername.isBlank() || rawPassword == null || rawPassword.isBlank()) {
 
             ApiResponse.sendError(ctx, 400, "BAD_REQUEST", "Username and password are required");
 
@@ -76,7 +84,9 @@ public class AuthHandler {
 
         }
 
-        username = username.trim();
+        String username = rawUsername.trim();
+
+        String password = rawPassword;
 
         if (mysqlPool == null) {
 
@@ -88,55 +98,58 @@ public class AuthHandler {
 
         String userSql = DbQueries.FIND_USER_BY_USERNAME;
 
-        final String finalUsername = username;
-
-        final String finalPassword = password;
-
         mysqlPool.preparedQuery(userSql).execute(Tuple.of(username))
-                .onSuccess(rows -> {
+                .compose(rows -> {
 
                     if (!rows.iterator().hasNext()) {
 
-                        logger.warn("Authentication failed: User '{}' not found", finalUsername);
+                        logger.warn("Authentication failed: User '{}' not found", username);
 
-                        ApiResponse.sendError(ctx, 401, "BAD_CREDENTIALS", "Invalid username or password");
-
-                        return;
+                        return Future.failedFuture("BAD_CREDENTIALS");
 
                     }
 
                     Row row = rows.iterator().next();
 
-                    Boolean status = row.getBoolean("status");
+                    Boolean status = DbUtil.getBoolean(row, "status");
 
                     if (status != null && !status) {
 
-                        logger.warn("Authentication rejected: User '{}' is disabled", finalUsername);
+                        logger.warn("Authentication rejected: User '{}' is disabled", username);
 
-                        ApiResponse.sendError(ctx, 403, "USER_DISABLED", "User account is disabled. Please contact administrator.");
-
-                        return;
+                        return Future.failedFuture("USER_DISABLED");
 
                     }
 
-                    if (!PasswordUtil.verify(finalPassword, row.getString("password"))) {
+                    String dbPassword = row.getString("password");
 
-                        logger.warn("Authentication failed: Incorrect password for user '{}'", finalUsername);
+                    // Offload CPU-intensive PBKDF2 hash verification to Vert.x worker thread
+                    return ctx.vertx().<Boolean>executeBlocking(() -> PasswordUtil.verify(password, dbPassword))
+                            .compose(isValid -> {
 
-                        if (ctx.vertx() != null && ctx.vertx().eventBus() != null) {
+                                if (!Boolean.TRUE.equals(isValid)) {
 
-                            ctx.vertx().eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
-                                    .put("eventType", "LOGIN_FAILED")
-                                    .put("eventContext", "Failed login attempt for user '" + finalUsername + "' (incorrect password)")
-                                    .put("severity", 2));
+                                    logger.warn("Authentication failed: Incorrect password for user '{}'", username);
 
-                        }
+                                    if (ctx.vertx() != null && ctx.vertx().eventBus() != null) {
 
-                        ApiResponse.sendError(ctx, 401, "BAD_CREDENTIALS", "Invalid username or password");
+                                        ctx.vertx().eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
+                                                .put("eventType", "LOGIN_FAILED")
+                                                .put("eventContext", "Failed login attempt for user '" + username + "' (incorrect password)")
+                                                .put("severity", 2));
 
-                        return;
+                                    }
 
-                    }
+                                    return Future.failedFuture("BAD_CREDENTIALS");
+
+                                }
+
+                                return Future.succeededFuture(row);
+
+                            });
+
+                })
+                .onSuccess(row -> {
 
                     Long userId = DbUtil.getLong(row, "id");
 
@@ -146,14 +159,28 @@ public class AuthHandler {
 
                     String roleName = DbUtil.getString(row, "role_name");
 
-                    fetchPermissionsAndCompleteLogin(ctx, userId, finalUsername, email, roleId, roleName);
+                    fetchPermissionsAndCompleteLogin(ctx, userId, username, email, roleId, roleName);
 
                 })
                 .onFailure(err -> {
 
-                    logger.warn("Database unavailable during login, checking bootstrap fallback: {}", err.getMessage());
+                    String msg = err.getMessage() != null ? err.getMessage() : "";
 
-                    handleFallbackAuth(ctx, finalUsername, finalPassword);
+                    if ("USER_DISABLED".equals(msg)) {
+
+                        ApiResponse.sendError(ctx, 403, "USER_DISABLED", "User account is disabled. Please contact administrator.");
+
+                    } else if ("BAD_CREDENTIALS".equals(msg)) {
+
+                        ApiResponse.sendError(ctx, 401, "BAD_CREDENTIALS", "Invalid username or password");
+
+                    } else {
+
+                        logger.warn("Database unavailable during login, checking bootstrap fallback: {}", msg);
+
+                        handleFallbackAuth(ctx, username, password);
+
+                    }
 
                 });
 
@@ -200,9 +227,7 @@ public class AuthHandler {
 
                     if (mysqlPool == null) {
 
-                        List<String> adminPerms = List.of("ROLE_ADMIN", "ALL", "PERM_ALL", "PERM_DASHBOARD_READ", "PERM_SUBNET_VIEW");
-
-                        issueTokenAndRespond(ctx, userId != null ? userId : 1L, username, "admin@motadata.com", 1L, "ROLE_ADMIN", adminPerms);
+                        issueTokenAndRespond(ctx, userId != null ? userId : 1L, username, "admin@motadata.com", 1L, "ROLE_ADMIN", ADMIN_PERMISSIONS);
 
                         return;
 
@@ -236,19 +261,14 @@ public class AuthHandler {
 
                                 logger.warn("Database unavailable during refresh token verification, checking bootstrap fallback: {}", err.getMessage());
 
-                                List<String> adminPerms = List.of("ROLE_ADMIN", "ALL", "PERM_ALL", "PERM_DASHBOARD_READ", "PERM_SUBNET_VIEW");
-
-                                issueTokenAndRespond(ctx, userId != null ? userId : 1L, username, "admin@motadata.com", 1L, "ROLE_ADMIN", adminPerms);
+                                issueTokenAndRespond(ctx, userId != null ? userId : 1L, username, "admin@motadata.com", 1L, "ROLE_ADMIN", ADMIN_PERMISSIONS);
 
                             });
 
                 })
                 .onFailure(err -> {
 
-                    ctx.response()
-                            .putHeader("Set-Cookie", "token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
-                            .putHeader("Set-Cookie", "refreshToken=; Path=/api/auth; Max-Age=0; HttpOnly; SameSite=Strict")
-                            .putHeader("Set-Cookie", "userName=; Path=/; Max-Age=0; SameSite=Lax");
+                    clearAuthCookies(ctx);
 
                     ApiResponse.sendError(ctx, 401, "REFRESH_TOKEN_EXPIRED", "Expired or invalid refresh token. Please log in again: " + err.getMessage());
 
@@ -274,10 +294,7 @@ public class AuthHandler {
 
     public void logout(RoutingContext ctx) {
 
-        ctx.response()
-                .putHeader("Set-Cookie", "token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
-                .putHeader("Set-Cookie", "refreshToken=; Path=/api/auth; Max-Age=0; HttpOnly; SameSite=Strict")
-                .putHeader("Set-Cookie", "userName=; Path=/; Max-Age=0; SameSite=Lax");
+        clearAuthCookies(ctx);
 
         JsonObject result = new JsonObject();
 
@@ -287,25 +304,22 @@ public class AuthHandler {
 
     }
 
+    private void clearAuthCookies(RoutingContext ctx) {
+
+        ctx.response().headers()
+                .add("Set-Cookie", "token=; Path=/; Max-Age=0; SameSite=Lax")
+                .add("Set-Cookie", "refreshToken=; Path=/api/auth; Max-Age=0; SameSite=Strict")
+                .add("Set-Cookie", "userName=; Path=/; Max-Age=0; SameSite=Lax")
+                .add("Set-Cookie", "userRole=; Path=/; Max-Age=0; SameSite=Lax")
+                .add("Set-Cookie", "authorities=; Path=/; Max-Age=0; SameSite=Lax");
+
+    }
+
     private void fetchPermissionsAndCompleteLogin(RoutingContext ctx, Long userId, String username, String email, Long roleId, String roleName) {
 
         if (roleId == null || roleId == 1L || "ROLE_ADMIN".equalsIgnoreCase(roleName) || "ADMIN".equalsIgnoreCase(roleName)) {
 
-            List<String> adminPerms = List.of(
-                    "ROLE_ADMIN", "ALL", "PERM_ALL",
-                    "PERM_DASHBOARD_READ", "PERM_DASHBOARD_WRITE",
-                    "PERM_SUBNET_VIEW", "PERM_SUBNET_EDIT", "PERM_SUBNET_DELETE",
-                    "PERM_DISCOVERY_READ", "PERM_DISCOVERY_WRITE",
-                    "PERM_DHCP_READ", "PERM_DHCP_WRITE",
-                    "PERM_ALERTS_READ", "PERM_ALERTS_WRITE", "PERM_ALERT_READ", "PERM_ALERT_WRITE",
-                    "PERM_SETTINGS_READ", "PERM_SETTINGS_WRITE",
-                    "PERM_EVENT NOTIFICATIONS_READ", "PERM_EVENT NOTIFICATIONS_WRITE", "PERM_EVENT_NOTIFICATIONS_READ", "PERM_EVENT_NOTIFICATIONS_WRITE",
-                    "PERM_REPORTS_READ", "PERM_REPORTS_WRITE",
-                    "PERM_ROGUE DETECTION_READ", "PERM_ROGUE DETECTION_WRITE", "PERM_ROGUE_DETECTION_READ", "PERM_ROGUE_DETECTION_WRITE",
-                    "PERM_IP REQUESTS_READ", "PERM_IP REQUESTS_WRITE", "PERM_IP_REQUESTS_READ", "PERM_IP_REQUESTS_WRITE"
-            );
-
-            issueTokenAndRespond(ctx, userId, username, email, 1L, "ROLE_ADMIN", adminPerms);
+            issueTokenAndRespond(ctx, userId, username, email, 1L, "ROLE_ADMIN", ADMIN_PERMISSIONS);
 
             return;
 
@@ -328,9 +342,9 @@ public class AuthHandler {
 
                         String feature = row.getString("feature_name");
 
-                        Boolean read = row.getBoolean("read_permission");
+                        Boolean read = DbUtil.getBoolean(row, "read_permission");
 
-                        Boolean write = row.getBoolean("write_permission");
+                        Boolean write = DbUtil.getBoolean(row, "write_permission");
 
                         if (feature != null) {
 
@@ -421,7 +435,7 @@ public class AuthHandler {
                     .put("eventType", "USER_LOGIN")
                     .put("eventContext", "User '" + username + "' logged in successfully")
                     .put("severity", 1)
-                    .put("userId",userId));
+                    .put("userId", userId));
 
         }
 
@@ -438,27 +452,11 @@ public class AuthHandler {
 
     }
 
-//    ONLY when MySQL is temporarily offline, connection timed out, or in standalone offline testing environments without a live DB.
-//    When the database is connected, handleFallbackAuth is bypassed completely, and the system uses the real database tables!
     private void handleFallbackAuth(RoutingContext ctx, String username, String password) {
 
         if ("admin".equalsIgnoreCase(username) && ("admin".equals(password) || "password".equals(password) || "admin@123".equals(password))) {
 
-            List<String> adminPerms = List.of(
-                    "ROLE_ADMIN", "ALL", "PERM_ALL",
-                    "PERM_DASHBOARD_READ", "PERM_DASHBOARD_WRITE",
-                    "PERM_SUBNET_VIEW", "PERM_SUBNET_EDIT", "PERM_SUBNET_DELETE",
-                    "PERM_DISCOVERY_READ", "PERM_DISCOVERY_WRITE",
-                    "PERM_DHCP_READ", "PERM_DHCP_WRITE",
-                    "PERM_ALERTS_READ", "PERM_ALERTS_WRITE", "PERM_ALERT_READ", "PERM_ALERT_WRITE",
-                    "PERM_SETTINGS_READ", "PERM_SETTINGS_WRITE",
-                    "PERM_EVENT NOTIFICATIONS_READ", "PERM_EVENT NOTIFICATIONS_WRITE", "PERM_EVENT_NOTIFICATIONS_READ", "PERM_EVENT_NOTIFICATIONS_WRITE",
-                    "PERM_REPORTS_READ", "PERM_REPORTS_WRITE",
-                    "PERM_ROGUE DETECTION_READ", "PERM_ROGUE DETECTION_WRITE", "PERM_ROGUE_DETECTION_READ", "PERM_ROGUE_DETECTION_WRITE",
-                    "PERM_IP REQUESTS_READ", "PERM_IP REQUESTS_WRITE", "PERM_IP_REQUESTS_READ", "PERM_IP_REQUESTS_WRITE"
-            );
-
-            issueTokenAndRespond(ctx, 1L, username, "admin@motadata.com", 1L, "ROLE_ADMIN", adminPerms);
+            issueTokenAndRespond(ctx, 1L, username, "admin@motadata.com", 1L, "ROLE_ADMIN", ADMIN_PERMISSIONS);
 
         } else {
 
