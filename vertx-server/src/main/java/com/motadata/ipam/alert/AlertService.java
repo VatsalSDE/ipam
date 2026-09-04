@@ -12,7 +12,7 @@ import io.vertx.core.json.JsonArray;
 
 import io.vertx.core.json.JsonObject;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 import io.vertx.sqlclient.Row;
 
@@ -33,11 +33,11 @@ public class AlertService {
 
     private static final Logger logger = LoggerFactory.getLogger(AlertService.class);
 
-    private final MySQLPool mysqlPool;
+    private final Pool mysqlPool;
 
     private final Vertx vertx;
 
-    public AlertService(MySQLPool mysqlPool, Vertx vertx) {
+    public AlertService(Pool mysqlPool, Vertx vertx) {
 
         this.mysqlPool = mysqlPool;
 

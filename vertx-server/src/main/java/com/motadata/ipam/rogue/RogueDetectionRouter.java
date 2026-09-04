@@ -7,14 +7,14 @@ import io.vertx.core.Vertx;
 
 import io.vertx.ext.web.Router;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 /**
  * RogueDetectionRouter registers endpoints for rogue device detection & whitelisting.
  */
 public class RogueDetectionRouter {
 
-    public static void register(Router router, MySQLPool mysqlPool, Vertx vertx, RbacAuthHandler rbacAuthHandler) {
+    public static void register(Router router, Pool mysqlPool, Vertx vertx, RbacAuthHandler rbacAuthHandler) {
 
         RogueDetectionService rogueDetectionService = new RogueDetectionService(mysqlPool, vertx);
 

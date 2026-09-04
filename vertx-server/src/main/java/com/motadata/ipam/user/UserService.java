@@ -14,7 +14,7 @@ import io.vertx.core.json.JsonArray;
 
 import io.vertx.core.json.JsonObject;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 import io.vertx.sqlclient.Row;
 
@@ -32,11 +32,11 @@ public class UserService {
 
     private static final Logger logger = LoggerFactory.getLogger(UserService.class);
 
-    private final MySQLPool mysqlPool;
+    private final Pool mysqlPool;
 
     private final Vertx vertx;
 
-    public UserService(MySQLPool mysqlPool, Vertx vertx) {
+    public UserService(Pool mysqlPool, Vertx vertx) {
 
         this.mysqlPool = mysqlPool;
 
@@ -44,7 +44,7 @@ public class UserService {
 
     }
 
-    public UserService(MySQLPool mysqlPool) {
+    public UserService(Pool mysqlPool) {
 
         this(mysqlPool, null);
 

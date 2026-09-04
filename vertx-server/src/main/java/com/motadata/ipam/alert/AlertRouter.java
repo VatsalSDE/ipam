@@ -7,14 +7,14 @@ import io.vertx.core.Vertx;
 
 import io.vertx.ext.web.Router;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 /**
  * AlertRouter registers endpoints for alert streams and notifications.
  */
-public class  AlertRouter {
+public class AlertRouter {
 
-    public static void register(Router router, MySQLPool mysqlPool, Vertx vertx, RbacAuthHandler rbacAuthHandler) {
+    public static void register(Router router, Pool mysqlPool, Vertx vertx, RbacAuthHandler rbacAuthHandler) {
 
         AlertService alertService = new AlertService(mysqlPool, vertx);
 

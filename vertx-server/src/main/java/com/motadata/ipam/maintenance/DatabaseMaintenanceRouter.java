@@ -7,14 +7,14 @@ import io.vertx.core.Vertx;
 
 import io.vertx.ext.web.Router;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 /**
  * DatabaseMaintenanceRouter registers REST endpoints for Database Maintenance and Retention.
  */
 public class DatabaseMaintenanceRouter {
 
-    public static void register(Router router, MySQLPool mysqlPool, Vertx vertx, RbacAuthHandler rbacAuthHandler) {
+    public static void register(Router router, Pool mysqlPool, Vertx vertx, RbacAuthHandler rbacAuthHandler) {
 
         DatabaseMaintenanceService service = new DatabaseMaintenanceService(mysqlPool, vertx);
 

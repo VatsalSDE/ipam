@@ -13,7 +13,7 @@ import io.vertx.core.json.JsonArray;
 
 import io.vertx.core.json.JsonObject;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 import io.vertx.sqlclient.Row;
 
@@ -30,11 +30,11 @@ public class RogueDetectionService {
 
     private static final Logger logger = LoggerFactory.getLogger(RogueDetectionService.class);
 
-    private final MySQLPool mysqlPool;
+    private final Pool mysqlPool;
 
     private final Vertx vertx;
 
-    public RogueDetectionService(MySQLPool mysqlPool, Vertx vertx) {
+    public RogueDetectionService(Pool mysqlPool, Vertx vertx) {
 
         this.mysqlPool = mysqlPool;
 
@@ -42,7 +42,7 @@ public class RogueDetectionService {
 
     }
 
-    public RogueDetectionService(MySQLPool mysqlPool) {
+    public RogueDetectionService(Pool mysqlPool) {
 
         this(mysqlPool, null);
 

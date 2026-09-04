@@ -2,10 +2,10 @@ package com.motadata.ipam.maintenance;
 
 
 import com.motadata.ipam.core.database.DbQueries;
-import com.motadata.ipam.core.database.DbUtil;
-import com.motadata.ipam.event.EventService;
 
-import io.vertx.core.CompositeFuture;
+import com.motadata.ipam.core.database.DbUtil;
+
+import com.motadata.ipam.event.EventService;
 
 import io.vertx.core.Future;
 
@@ -13,7 +13,7 @@ import io.vertx.core.Vertx;
 
 import io.vertx.core.json.JsonObject;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 import io.vertx.sqlclient.Row;
 
@@ -42,13 +42,13 @@ public class DatabaseMaintenanceService {
 
     private static final long DAILY_RETENTION_INTERVAL_MS = 86_400_000L; // 24 hours
 
-    private final MySQLPool mysqlPool;
+    private final Pool mysqlPool;
 
     private final Vertx vertx;
 
     private Long periodicTimerId;
 
-    public DatabaseMaintenanceService(MySQLPool mysqlPool, Vertx vertx) {
+    public DatabaseMaintenanceService(Pool mysqlPool, Vertx vertx) {
 
         this.mysqlPool = mysqlPool;
 
@@ -62,7 +62,7 @@ public class DatabaseMaintenanceService {
 
     }
 
-    public DatabaseMaintenanceService(MySQLPool mysqlPool) {
+    public DatabaseMaintenanceService(Pool mysqlPool) {
 
         this(mysqlPool, null);
 
@@ -284,7 +284,7 @@ public class DatabaseMaintenanceService {
 
             }
 
-            return vertx.executeBlocking(promise -> {
+            return vertx.executeBlocking(() -> {
 
                 try {
 
@@ -318,9 +318,7 @@ public class DatabaseMaintenanceService {
 
                         process.destroyForcibly();
 
-                        promise.fail("Database backup process timed out after 60 seconds");
-
-                        return;
+                        throw new RuntimeException("Database backup process timed out after 60 seconds");
 
                     }
 
@@ -347,13 +345,13 @@ public class DatabaseMaintenanceService {
 
                     logger.info("Database backup completed successfully at: {}", backupFile.getAbsolutePath());
 
-                    promise.complete(result);
+                    return result;
 
                 } catch (Exception e) {
 
                     logger.error("Database backup execution failed: {}", e.getMessage(), e);
 
-                    promise.fail("Database backup failed: " + e.getMessage());
+                    throw new RuntimeException("Database backup failed: " + e.getMessage(), e);
 
                 }
 
@@ -399,7 +397,7 @@ public class DatabaseMaintenanceService {
                             .execute(Tuple.of(finalDays))
                             .map(rows -> rows.rowCount());
 
-                    return CompositeFuture.all(purgeEvents, purgeLogs, purgeAlerts)
+                    return Future.all(purgeEvents, purgeLogs, purgeAlerts)
                             .map(comp -> {
 
                                 int eventsDeleted = comp.resultAt(0);

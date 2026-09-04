@@ -5,17 +5,27 @@ import com.motadata.ipam.core.database.DbQueries;
 import com.motadata.ipam.core.database.DbUtil;
 import com.motadata.ipam.event.EventService;
 import io.vertx.core.Future;
+
 import io.vertx.core.Vertx;
+
 import io.vertx.core.json.JsonArray;
+
 import io.vertx.core.json.JsonObject;
-import io.vertx.mysqlclient.MySQLPool;
+
+import io.vertx.sqlclient.Pool;
+
 import io.vertx.sqlclient.Row;
+
 import io.vertx.sqlclient.Tuple;
+
 import org.slf4j.Logger;
+
 import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
+
 import java.util.ArrayList;
+
 import java.util.List;
 
 /**
@@ -27,12 +37,16 @@ public class IpRequestService {
 
     private static final Logger logger = LoggerFactory.getLogger(IpRequestService.class);
 
-    private final MySQLPool mysqlPool;
+    private final Pool mysqlPool;
+
     private final Vertx vertx;
 
-    public IpRequestService(MySQLPool mysqlPool, Vertx vertx) {
+    public IpRequestService(Pool mysqlPool, Vertx vertx) {
+
         this.mysqlPool = mysqlPool;
+
         this.vertx = vertx;
+
     }
 
     /**
@@ -99,17 +113,14 @@ public class IpRequestService {
             return Future.failedFuture("Request body cannot be empty");
         }
 
-        int numberOfIps = body.getInteger("numberOfIps", body.getInteger("NoOfIps", 0));
+        int numberOfIps = extractInt(body, "numberOfIps", "NoOfIps", "noOfIps");
         if (numberOfIps <= 0) {
             return Future.failedFuture("Please specify a valid number of IPs (greater than 0)");
         }
 
-        String purpose = body.getString("purpose", "General allocation");
-        boolean preferredSubnet = Boolean.TRUE.equals(body.getBoolean("preferredSubnet", false));
-        String subnetId = body.getString("subnetId");
-        if (subnetId == null && body.getValue("subnetId") != null) {
-            subnetId = String.valueOf(body.getValue("subnetId"));
-        }
+        String purpose = extractString(body, "purpose", "General allocation");
+        boolean preferredSubnet = extractBoolean(body, "preferredSubnet");
+        String subnetId = extractString(body, "subnetId", null);
 
         JsonArray ipsArray = body.getJsonArray("ips");
         if (ipsArray == null) {
@@ -211,8 +222,38 @@ public class IpRequestService {
                     String finalSubnetId = subnetId;
                     String ipsJson = ipsArray.encode();
 
-                    return applyApproval(requestId, finalSubnetId, ipsJson, remark, finalAdmin, ipList);
+                    return verifyAllIpsAvailable(ipList)
+                            .compose(allAvailable -> {
+                                if (!allAvailable) {
+                                    return Future.failedFuture("One or more selected IP addresses are no longer available. Please select different available IPs.");
+                                }
+                                return applyApproval(requestId, finalSubnetId, ipsJson, remark, finalAdmin, ipList);
+                            });
                 });
+    }
+
+    private Future<Boolean> verifyAllIpsAvailable(List<String> ipList) {
+        if (ipList == null || ipList.isEmpty()) {
+            return Future.succeededFuture(false);
+        }
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) as cnt FROM subnet_ip_details WHERE status = 'AVAILABLE' AND ip_address IN (");
+        List<Object> params = new ArrayList<>();
+        for (int i = 0; i < ipList.size(); i++) {
+            if (i > 0) sql.append(",");
+            sql.append("?");
+            params.add(ipList.get(i));
+        }
+        sql.append(")");
+
+        return mysqlPool.preparedQuery(sql.toString()).execute(Tuple.from(params))
+                .map(rows -> {
+                    if (rows.iterator().hasNext()) {
+                        long count = rows.iterator().next().getLong("cnt");
+                        return count == ipList.size();
+                    }
+                    return false;
+                })
+                .recover(err -> Future.succeededFuture(true));
     }
 
     private Future<JsonObject> applyApproval(Long requestId, String subnetId, String ipsJson, String remark, String adminUsername, List<String> ipList) {
@@ -225,6 +266,7 @@ public class IpRequestService {
                     }
 
                     return Future.all(new ArrayList<>(ipUpdates))
+                            .compose(v -> mysqlPool.preparedQuery(DbQueries.SYNC_ALL_SUBNET_IP_COUNTS).execute().mapEmpty().recover(e -> Future.succeededFuture()))
                             .map(v -> {
                                 if (vertx != null && vertx.eventBus() != null) {
                                     vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
@@ -364,5 +406,42 @@ public class IpRequestService {
             default:
                 return "PENDING";
         }
+    }
+
+    private int extractInt(JsonObject body, String... keys) {
+        if (body == null) return 0;
+        for (String key : keys) {
+            Object val = body.getValue(key);
+            if (val instanceof Number) {
+                return ((Number) val).intValue();
+            } else if (val instanceof String) {
+                try {
+                    return Integer.parseInt(((String) val).trim());
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        return 0;
+    }
+
+    private boolean extractBoolean(JsonObject body, String key) {
+        if (body == null) return false;
+        Object val = body.getValue(key);
+        if (val instanceof Boolean) {
+            return (Boolean) val;
+        } else if (val instanceof String) {
+            String s = ((String) val).trim();
+            return "true".equalsIgnoreCase(s) || "1".equals(s);
+        } else if (val instanceof Number) {
+            return ((Number) val).intValue() == 1;
+        }
+        return false;
+    }
+
+    private String extractString(JsonObject body, String key, String defaultVal) {
+        if (body == null) return defaultVal;
+        Object val = body.getValue(key);
+        if (val == null) return defaultVal;
+        String s = String.valueOf(val).trim();
+        return (!s.isEmpty() && !"null".equalsIgnoreCase(s)) ? s : defaultVal;
     }
 }

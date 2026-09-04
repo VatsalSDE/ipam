@@ -7,14 +7,14 @@ import io.vertx.core.Vertx;
 
 import io.vertx.ext.web.Router;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 /**
  * EventRouter registers endpoints for event notifications and audit logging.
  */
 public class EventRouter {
 
-    public static void register(Router router, MySQLPool mysqlPool, Vertx vertx, RbacAuthHandler rbacAuthHandler) {
+    public static void register(Router router, Pool mysqlPool, Vertx vertx, RbacAuthHandler rbacAuthHandler) {
 
         EventService eventService = new EventService(mysqlPool, vertx);
 

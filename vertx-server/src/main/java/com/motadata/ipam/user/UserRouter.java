@@ -7,14 +7,14 @@ import io.vertx.core.Vertx;
 
 import io.vertx.ext.web.Router;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 /**
  * UserRouter registers REST endpoints for User and Role Management.
  */
 public class UserRouter {
 
-    public static void register(Router router, MySQLPool mysqlPool, Vertx vertx, RbacAuthHandler rbacAuthHandler) {
+    public static void register(Router router, Pool mysqlPool, Vertx vertx, RbacAuthHandler rbacAuthHandler) {
 
         UserService userService = new UserService(mysqlPool, vertx);
 

@@ -2,9 +2,12 @@ package com.motadata.ipam.request;
 
 
 import com.motadata.ipam.security.RbacAuthHandler;
+
 import io.vertx.core.Vertx;
+
 import io.vertx.ext.web.Router;
-import io.vertx.mysqlclient.MySQLPool;
+
+import io.vertx.sqlclient.Pool;
 
 /**
  * Modular IP Requests Router.
@@ -12,8 +15,10 @@ import io.vertx.mysqlclient.MySQLPool;
  */
 public class IpRequestRouter {
 
-    public static void register(Router router, MySQLPool mysqlPool, Vertx vertx, RbacAuthHandler rbacAuthHandler) {
+    public static void register(Router router, Pool mysqlPool, Vertx vertx, RbacAuthHandler rbacAuthHandler) {
+
         IpRequestService service = new IpRequestService(mysqlPool, vertx);
+
         IpRequestHandler handler = new IpRequestHandler(service);
 
         // 1. List IP Requests (Read permission)

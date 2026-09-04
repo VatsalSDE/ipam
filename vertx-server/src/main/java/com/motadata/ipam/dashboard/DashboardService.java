@@ -10,7 +10,7 @@ import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,7 +37,7 @@ public class DashboardService {
 
     private final AlertService alertService;
 
-    private final MySQLPool mysqlPool;
+    private final Pool mysqlPool;
 
     public DashboardService(
             SubnetService subnetService,
@@ -45,7 +45,7 @@ public class DashboardService {
             EventService eventService,
             RogueDetectionService rogueDetectionService,
             AlertService alertService,
-            MySQLPool mysqlPool
+            Pool mysqlPool
     ) {
         this.subnetService = subnetService;
         this.gatewayService = gatewayService;
@@ -111,7 +111,7 @@ public class DashboardService {
                 });
 
         // Combine all 7 resilient futures in parallel
-        return CompositeFuture.all(List.of(subnetsFuture, discoveredFuture, eventsFuture, rogueFuture, alertsFuture, vendorFuture, event12mFuture))
+        return Future.all(List.of(subnetsFuture, discoveredFuture, eventsFuture, rogueFuture, alertsFuture, vendorFuture, event12mFuture))
                 .map(cf -> {
 
                     JsonObject subnetData = subnetsFuture.result();
@@ -121,6 +121,7 @@ public class DashboardService {
 
                     long totUsed = 0;
                     long totAvail = 0;
+                    long totTransient = 0;
                     long totTotal = 0;
 
                     List<JsonObject> topList = new ArrayList<>();
@@ -132,14 +133,17 @@ public class DashboardService {
                         Object totObj = s.getValue("totalIp");
                         Object usdObj = s.getValue("usedIp");
                         Object avlObj = s.getValue("availableIp");
+                        Object trnObj = s.getValue("transientIp");
 
                         long tot = (totObj instanceof Number) ? ((Number) totObj).longValue() : 0L;
                         long usd = (usdObj instanceof Number) ? ((Number) usdObj).longValue() : 0L;
                         long avl = (avlObj instanceof Number) ? ((Number) avlObj).longValue() : 0L;
+                        long trn = (trnObj instanceof Number) ? ((Number) trnObj).longValue() : 0L;
 
                         totTotal += tot;
                         totUsed += usd;
                         totAvail += avl;
+                        totTransient += trn;
 
                         double pct = tot > 0 ? (usd * 100.0 / tot) : 0.0;
                         int sev = pct >= 80 ? 1 : (pct >= 60 ? 2 : 3);
@@ -155,6 +159,7 @@ public class DashboardService {
                                 .put("totalIp", tot)
                                 .put("usedIp", usd)
                                 .put("availableIp", avl)
+                                .put("transientIp", trn)
                                 .put("usedIpPercentage", Math.round(pct * 100.0) / 100.0)
                                 .put("severity", sev);
 
@@ -172,15 +177,16 @@ public class DashboardService {
 
                     double totUsedPct = totTotal > 0 ? ((double) totUsed * 100.0 / totTotal) : 0.0;
                     double totAvailPct = totTotal > 0 ? ((double) totAvail * 100.0 / totTotal) : 0.0;
+                    double totTransientPct = totTotal > 0 ? ((double) totTransient * 100.0 / totTotal) : 0.0;
 
                     JsonObject ipSummary = new JsonObject()
                             .put("totalIp", totTotal)
                             .put("usedIp", totUsed)
                             .put("availableIp", totAvail)
-                            .put("transientIp", 0)
+                            .put("transientIp", totTransient)
                             .put("usedIpPercentage", Math.round(totUsedPct * 100.0) / 100.0)
                             .put("availableIpPercentage", Math.round(totAvailPct * 100.0) / 100.0)
-                            .put("transientIpPercentage", 0.0);
+                            .put("transientIpPercentage", Math.round(totTransientPct * 100.0) / 100.0);
 
                     JsonObject rogueData = rogueFuture.result();
                     JsonArray rogueItems = rogueData != null ? rogueData.getJsonArray("items", new JsonArray()) : new JsonArray();

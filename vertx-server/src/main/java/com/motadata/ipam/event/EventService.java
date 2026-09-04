@@ -12,7 +12,7 @@ import io.vertx.core.json.JsonArray;
 
 import io.vertx.core.json.JsonObject;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 import io.vertx.sqlclient.Row;
 
@@ -31,11 +31,11 @@ public class EventService {
 
     private static final Logger logger = LoggerFactory.getLogger(EventService.class);
 
-    private final MySQLPool mysqlPool;
+    private final Pool mysqlPool;
 
     private final Vertx vertx;
 
-    public EventService(MySQLPool mysqlPool, Vertx vertx) {
+    public EventService(Pool mysqlPool, Vertx vertx) {
 
         this.mysqlPool = mysqlPool;
 
@@ -68,7 +68,7 @@ public class EventService {
 
     }
 
-    public EventService(MySQLPool mysqlPool) {
+    public EventService(Pool mysqlPool) {
 
         this(mysqlPool, null);
 

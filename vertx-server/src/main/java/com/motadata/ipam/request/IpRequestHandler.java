@@ -2,6 +2,7 @@ package com.motadata.ipam.request;
 
 
 import com.motadata.ipam.core.model.ApiResponse;
+import io.vertx.core.http.Cookie;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -124,24 +125,65 @@ public class IpRequestHandler {
     }
 
     private String extractUsername(RoutingContext ctx) {
+        String u = ctx.get("currentUsername");
+        if (u != null && !u.trim().isEmpty()) return u.trim();
+
+        JsonObject user = ctx.get("currentUser");
+        if (user != null) {
+            String sub = user.getString("sub");
+            if (sub != null && !sub.trim().isEmpty()) return sub.trim();
+            String username = user.getString("username");
+            if (username != null && !username.trim().isEmpty()) return username.trim();
+        }
+
         if (ctx.user() != null && ctx.user().principal() != null) {
             String sub = ctx.user().principal().getString("sub");
-            if (sub != null && !sub.isEmpty()) return sub;
+            if (sub != null && !sub.trim().isEmpty()) return sub.trim();
             String username = ctx.user().principal().getString("username");
-            if (username != null && !username.isEmpty()) return username;
+            if (username != null && !username.trim().isEmpty()) return username.trim();
         }
+
+        Cookie userCookie = ctx.request().getCookie("userName");
+        if (userCookie != null && userCookie.getValue() != null && !userCookie.getValue().trim().isEmpty()) {
+            return userCookie.getValue().trim();
+        }
+
+        String userHeader = ctx.request().getHeader("username");
+        if (userHeader != null && !userHeader.trim().isEmpty()) {
+            return userHeader.trim();
+        }
+
         return "admin";
     }
 
     private boolean checkIsAdmin(RoutingContext ctx) {
-        if (ctx.user() != null && ctx.user().principal() != null) {
-            JsonArray perms = ctx.user().principal().getJsonArray("permissions");
+        JsonObject user = ctx.get("currentUser");
+        if (user == null && ctx.user() != null) {
+            user = ctx.user().principal();
+        }
+
+        if (user != null) {
+            String roleName = user.getString("roleName", user.getString("role", ""));
+            if ("ROLE_ADMIN".equalsIgnoreCase(roleName) || "ADMIN".equalsIgnoreCase(roleName)) {
+                return true;
+            }
+            JsonArray perms = user.getJsonArray("permissions");
             if (perms != null) {
                 return perms.contains("ROLE_ADMIN") || perms.contains("PERM_ALL") || perms.contains("ALL");
             }
-            String roleName = ctx.user().principal().getString("roleName");
-            return "ROLE_ADMIN".equalsIgnoreCase(roleName) || "ADMIN".equalsIgnoreCase(roleName);
+            return false;
         }
-        return true;
+
+        Cookie roleCookie = ctx.request().getCookie("userRole");
+        if (roleCookie != null && roleCookie.getValue() != null) {
+            return "ROLE_ADMIN".equalsIgnoreCase(roleCookie.getValue()) || "ADMIN".equalsIgnoreCase(roleCookie.getValue());
+        }
+
+        Cookie authCookie = ctx.request().getCookie("authorities");
+        if (authCookie != null && authCookie.getValue() != null) {
+            return authCookie.getValue().contains("ROLE_ADMIN");
+        }
+
+        return false;
     }
 }
