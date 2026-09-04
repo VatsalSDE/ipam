@@ -14,7 +14,7 @@ import io.vertx.core.json.JsonArray;
 
 import io.vertx.core.json.JsonObject;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 import io.vertx.sqlclient.Row;
 
@@ -45,7 +45,7 @@ public class ScannerService {
 
     private static final int DEFAULT_CHUNK_SIZE = 1024;
 
-    private final MySQLPool mysqlPool;
+    private final Pool mysqlPool;
 
     private final GoPluginBridge goPluginBridge;
 
@@ -54,7 +54,7 @@ public class ScannerService {
     // In-memory status tracker for concurrent scans: subnetId -> status JsonObject
     private final Map<Long, JsonObject> activeScans = new ConcurrentHashMap<>();
 
-    public ScannerService(MySQLPool mysqlPool, GoPluginBridge goPluginBridge, Vertx vertx) {
+    public ScannerService(Pool mysqlPool, GoPluginBridge goPluginBridge, Vertx vertx) {
 
         this.mysqlPool = mysqlPool;
 
@@ -430,7 +430,7 @@ public class ScannerService {
      */
     private Future<Void> updateIpStatusBatch(Long subnetId, JsonArray upIps, JsonArray downIps) {
 
-        List<Future> updateFutures = new ArrayList<>();
+        List<Future<Void>> updateFutures = new ArrayList<>();
 
         if (upIps != null && !upIps.isEmpty()) {
 
@@ -456,9 +456,10 @@ public class ScannerService {
 
         if (downIps != null && !downIps.isEmpty()) {
 
+            String updateTransientSql = DbQueries.SCANNER_UPDATE_IP_STATUS_TRANSIENT;
             String updateAvailSql = DbQueries.SCANNER_UPDATE_IP_STATUS_AVAILABLE;
 
-            List<Tuple> availBatch = new ArrayList<>(downIps.size());
+            List<Tuple> downBatch = new ArrayList<>(downIps.size());
 
             for (int i = 0; i < downIps.size(); i++) {
 
@@ -466,13 +467,17 @@ public class ScannerService {
 
                 if (ip != null && !ip.isBlank()) {
 
-                    availBatch.add(Tuple.of(subnetId, ip.trim()));
+                    downBatch.add(Tuple.of(subnetId, ip.trim()));
 
                 }
 
             }
 
-            updateFutures.add(mysqlPool.preparedQuery(updateAvailSql).executeBatch(availBatch).mapEmpty());
+            // 1. Move offline USED IPs to TRANSIENT state (7-day holding period)
+            updateFutures.add(mysqlPool.preparedQuery(updateTransientSql).executeBatch(downBatch).mapEmpty());
+
+            // 2. Expire TRANSIENT IPs older than 7 days to AVAILABLE state
+            updateFutures.add(mysqlPool.preparedQuery(updateAvailSql).executeBatch(downBatch).mapEmpty());
 
         }
 
@@ -482,7 +487,7 @@ public class ScannerService {
 
         }
 
-        return io.vertx.core.CompositeFuture.all(updateFutures).mapEmpty();
+        return Future.all(updateFutures).mapEmpty();
 
     }
 

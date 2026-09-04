@@ -7,7 +7,7 @@ import com.motadata.ipam.core.database.DbUtil;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 import io.vertx.sqlclient.Row;
 
@@ -32,7 +32,7 @@ public class SubnetScanScheduler {
 
     private final Vertx vertx;
 
-    private final MySQLPool mysqlPool;
+    private final Pool mysqlPool;
 
     private final ScannerService scannerService;
 
@@ -41,7 +41,7 @@ public class SubnetScanScheduler {
 
     private Long periodicTimerId;
 
-    public SubnetScanScheduler(Vertx vertx, MySQLPool mysqlPool, ScannerService scannerService) {
+    public SubnetScanScheduler(Vertx vertx, Pool mysqlPool, ScannerService scannerService) {
 
         this.vertx = vertx;
 

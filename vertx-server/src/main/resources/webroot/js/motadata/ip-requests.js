@@ -365,7 +365,7 @@ var ipRequests=
                         .filter(item => item && item.status && item.status.toString().toLowerCase() === "available")
                         .map(item => ({
                             ip: item.ipAddress || item.ip || "N/A",
-                            status: "Available",
+                            status: "AVAILABLE",
                             mac: item.macAddress || item.mac || "N/A"
                         }));
 
@@ -529,7 +529,7 @@ var ipRequests=
             $("#saveRequest").click(function () {
 
                 var requestData = {
-                    numberOfIps: $("#numOfIps").val(),
+                    numberOfIps: parseInt($("#numOfIps").val(), 10) || 0,
                     purpose: $("#purpose").val(),
                     location: $("#location").val(),
                     subnetId: $("#preferredSubnet").prop("checked") ? $("#subnetDropdown").data("kendoDropDownList").value() : null,
@@ -615,7 +615,7 @@ var ipRequests=
                                 .filter(item => item && item.status && item.status.toString().toLowerCase() === "available")
                                 .map(item => ({
                                     ip: item.ipAddress || item.ip || "N/A",
-                                    status: "Available",
+                                    status: "AVAILABLE",
                                     mac: item.macAddress || item.mac || "N/A"
                                 }));
 

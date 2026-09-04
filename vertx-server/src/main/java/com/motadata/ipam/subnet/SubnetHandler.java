@@ -243,16 +243,9 @@ public class SubnetHandler {
      */
     public void getIpDetails(RoutingContext ctx) {
 
-        String idParam = ctx.pathParam("id");
-
-        Long ipId = null;
-        try {
-            ipId = Long.parseLong(idParam != null ? idParam.trim() : "");
-        } catch (Exception ignored) {}
+        Long ipId = SecurityUtil.parseSafePositiveId(ctx, "id");
 
         if (ipId == null) {
-
-            ApiResponse.sendError(ctx, 400, "BAD_REQUEST", "Invalid IP ID: " + idParam);
 
             return;
 
@@ -273,6 +266,232 @@ public class SubnetHandler {
 
                 })
                 .onFailure(err -> ApiResponse.sendError(ctx, 500, "INTERNAL_SERVER_ERROR", err.getMessage()));
+
+    }
+
+    /**
+     * GET /api/subnet/ip/:id/changelog
+     * Returns audit change logs specifically for an individual IP record ID.
+     */
+    public void getIpChangeLogs(RoutingContext ctx) {
+
+        Long ipId = SecurityUtil.parseSafePositiveId(ctx, "id");
+
+        if (ipId == null) {
+
+            return;
+
+        }
+
+        int limit = parseQueryParam(ctx, "limit", 50);
+
+        subnetService.getIpChangeLogs(ipId, limit)
+                .onSuccess(result -> ApiResponse.sendSuccess(ctx, result))
+                .onFailure(err -> ApiResponse.sendError(ctx, 500, "IP_CHANGELOG_FETCH_FAILED", err.getMessage()));
+
+    }
+
+    /**
+     * POST /api/subnet/ip/range/status
+
+     * Updates status of an IP range (e.g. from Available to Used, Transient, Reserved).
+     */
+    public void updateIpRangeStatus(RoutingContext ctx) {
+
+        JsonObject body = ctx.body().asJsonObject();
+
+        Long subnetId = null;
+
+        String startIp = null;
+
+        String endIp = null;
+
+        String status = null;
+
+        if (body != null) {
+
+            subnetId = body.getLong("subnetId");
+
+            startIp = body.getString("startIp");
+
+            endIp = body.getString("endIp");
+
+            status = body.getString("status");
+
+        } else {
+
+            String sidStr = ctx.request().getFormAttribute("subnetId");
+
+            startIp = ctx.request().getFormAttribute("startIp");
+
+            endIp = ctx.request().getFormAttribute("endIp");
+
+            status = ctx.request().getFormAttribute("status");
+
+            try {
+
+                if (sidStr != null) {
+
+                    subnetId = Long.parseLong(sidStr.trim());
+
+                }
+
+            } catch (Exception ignored) {}
+
+        }
+
+        if (subnetId == null || startIp == null || endIp == null || status == null) {
+
+            ApiResponse.sendError(ctx, 400, "BAD_REQUEST", "subnetId, startIp, endIp, and status are required");
+
+            return;
+
+        }
+
+        String username = extractUsername(ctx);
+
+        subnetService.updateIpRangeStatus(subnetId, startIp, endIp, status, username)
+                .onSuccess(result -> ApiResponse.sendSuccess(ctx, result))
+                .onFailure(err -> ApiResponse.sendError(ctx, 500, "IP_RANGE_UPDATE_FAILED", err.getMessage()));
+
+    }
+
+    /**
+     * POST /api/subnet/ip/range/delete
+     * Resets an IP range to Available.
+     */
+    public void deleteIpRange(RoutingContext ctx) {
+
+        JsonObject body = ctx.body().asJsonObject();
+
+        Long subnetId = null;
+
+        String startIp = null;
+
+        String endIp = null;
+
+        if (body != null) {
+
+            subnetId = body.getLong("subnetId");
+
+            startIp = body.getString("startIp");
+
+            endIp = body.getString("endIp");
+
+        } else {
+
+            String sidStr = ctx.request().getFormAttribute("subnetId");
+
+            startIp = ctx.request().getFormAttribute("startIp");
+
+            endIp = ctx.request().getFormAttribute("endIp");
+
+            try {
+
+                if (sidStr != null) {
+
+                    subnetId = Long.parseLong(sidStr.trim());
+
+                }
+
+            } catch (Exception ignored) {}
+
+        }
+
+        if (subnetId == null || startIp == null || endIp == null) {
+
+            ApiResponse.sendError(ctx, 400, "BAD_REQUEST", "subnetId, startIp, and endIp are required");
+
+            return;
+
+        }
+
+        String username = extractUsername(ctx);
+
+        subnetService.deleteIpRange(subnetId, startIp, endIp, username)
+                .onSuccess(result -> ApiResponse.sendSuccess(ctx, result))
+                .onFailure(err -> ApiResponse.sendError(ctx, 500, "IP_RANGE_DELETE_FAILED", err.getMessage()));
+
+    }
+
+    /**
+     * DELETE /api/subnet/ips
+     * Resets selected IP IDs to Available.
+     */
+    public void deleteMultipleIps(RoutingContext ctx) {
+
+        String idsParam = ctx.request().getParam("ids");
+
+        java.util.List<Long> ipIds = new java.util.ArrayList<>();
+
+        if (idsParam != null && !idsParam.isBlank()) {
+
+            for (String part : idsParam.split(",")) {
+
+                try {
+                    ipIds.add(Long.parseLong(part.trim()));
+
+                } catch (Exception ignored) {}
+
+            }
+
+        } else {
+
+            JsonObject body = ctx.body().asJsonObject();
+
+            if (body != null && body.containsKey("ids")) {
+
+                io.vertx.core.json.JsonArray arr = body.getJsonArray("ids");
+
+                for (int i = 0; i < arr.size(); i++) {
+
+                    ipIds.add(arr.getLong(i));
+
+                }
+
+            }
+
+        }
+
+        if (ipIds.isEmpty()) {
+
+            ApiResponse.sendError(ctx, 400, "BAD_REQUEST", "No valid IP IDs provided");
+
+            return;
+
+        }
+
+        String username = extractUsername(ctx);
+
+        subnetService.deleteMultipleIps(ipIds, username)
+                .onSuccess(result -> ApiResponse.sendSuccess(ctx, result))
+                .onFailure(err -> ApiResponse.sendError(ctx, 500, "BULK_IP_DELETE_FAILED", err.getMessage()));
+
+    }
+
+    private String extractUsername(RoutingContext ctx) {
+
+        if (ctx.user() != null && ctx.user().principal() != null) {
+
+            String username = ctx.user().principal().getString("username");
+
+            if (username != null && !username.isEmpty()) {
+
+                return username;
+
+            }
+
+            String sub = ctx.user().principal().getString("sub");
+
+            if (sub != null && !sub.isEmpty()) {
+
+                return sub;
+
+            }
+
+        }
+
+        return "System";
 
     }
 

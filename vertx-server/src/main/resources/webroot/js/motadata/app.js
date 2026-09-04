@@ -263,7 +263,7 @@ var appManager =
         },
         getDhcpServers: function() {
             return this.getKey("dhcpServers", [
-                { id: 1, credentialName: "Win-DHCP-HQ", serverAddress: "192.168.1.50", serverType: "Windows", subnetMask: "255.255.255.0", status: true, lastScanTime: "2026-08-30 08:00:00", description: "Primary Domain Controller DHCP", scopeAddress: "192.168.1.0", totalIp: 254, usedIp: 42, availableIp: 212 }
+                { id: 1, credentialName: "Win-DHCP-HQ", hostAddress: "192.168.1.50", serverAddress: "192.168.1.50", type: "Windows Credential", serverType: "Windows Credential", port: "5985", subnetMask: "255.255.255.0", status: true, lastScanTime: "2026-08-30 08:00:00", description: "Primary Domain Controller DHCP", scopeAddress: "192.168.1.0", totalIp: 254, usedIp: 42, availableIp: 212, createdBy: "admin", duration: "Hours", scheduleHour: 24, userName: "Administrator" }
             ]);
         },
         getUsers: function() {
@@ -332,7 +332,7 @@ var appManager =
         },
         getSupernets: function() {
             return this.getKey("supernets", [
-                { id: 1, supernetAddress: "192.168.0.0", supernetCidr: "16", supernetMask: "255.255.0.0", supernetName: "Corporate Supernet", description: "Master block" }
+                { id: 1, supernetAddress: "192.168.0.0/16", supernetCidr: "16", supernetMask: "255.255.0.0", supernetName: "Corporate Supernet", subnetName: "Corporate Supernet (192.168.0.0/16)", subnetAddress: "192.168.0.0", description: "Master block", subnets: [] }
             ]);
         }
     },
@@ -440,7 +440,20 @@ var appManager =
 
         // 4. Supernet Category
         if (url === '/supernetByCategory/') {
-            var supernets = appManager.appDataStore.getSupernets();
+            var rawSupernets = appManager.appDataStore.getSupernets();
+            var supernets = rawSupernets.map(function(sn) {
+                return {
+                    id: sn.id,
+                    supernetAddress: sn.supernetAddress || "192.168.0.0/16",
+                    supernetCidr: sn.supernetCidr || "16",
+                    supernetMask: sn.supernetMask || "255.255.0.0",
+                    supernetName: sn.supernetName || "Corporate Supernet",
+                    subnetName: sn.subnetName || sn.supernetName || sn.supernetAddress || "Corporate Supernet",
+                    subnetAddress: sn.subnetAddress || sn.supernetAddress || "192.168.0.0",
+                    description: sn.description || "",
+                    subnets: sn.subnets || []
+                };
+            });
             if (request.callback) {
                 request.callback({
                     json: { success: true, data: supernets },
@@ -563,10 +576,11 @@ var appManager =
                         var s = (res && res.data) ? res.data : {};
                         var tot = s.totalIp || 0;
                         var usd = s.usedIp || 0;
-                        var avl = s.availableIp !== undefined ? s.availableIp : (tot - usd);
-                        var trn = 0;
+                        var trn = s.transientIp !== undefined ? s.transientIp : 0;
+                        var avl = s.availableIp !== undefined ? s.availableIp : (tot - usd - trn);
                         var uPct = tot > 0 ? (usd * 100.0 / tot) : 0;
                         var aPct = tot > 0 ? (avl * 100.0 / tot) : 0;
+                        var tPct = tot > 0 ? (trn * 100.0 / tot) : 0;
                         var graphData = {
                             totalIp: tot,
                             usedIp: usd,
@@ -574,7 +588,7 @@ var appManager =
                             transientIp: trn,
                             usedIpPercentage: uPct.toFixed(2),
                             availableIpPercentage: aPct.toFixed(2),
-                            transientIpPercentage: "0.00"
+                            transientIpPercentage: tPct.toFixed(2)
                         };
                         if (request.callback) {
                             request.callback({
@@ -596,25 +610,28 @@ var appManager =
                     dataType: 'json',
                     success: function (res) {
                         var items = (res && res.data) ? (res.data.subnets || res.data.items || []) : [];
-                        var tot = 0, usd = 0, avl = 0;
+                        var tot = 0, usd = 0, avl = 0, trn = 0;
                         items.forEach(function(s) {
                             var t = s.totalIp || 0;
                             var u = s.usedIp || 0;
-                            var a = s.availableIp !== undefined ? s.availableIp : (t - u);
+                            var tr = s.transientIp !== undefined ? s.transientIp : 0;
+                            var a = s.availableIp !== undefined ? s.availableIp : (t - u - tr);
                             tot += t;
                             usd += u;
                             avl += a;
+                            trn += tr;
                         });
                         var uPct = tot > 0 ? (usd * 100.0 / tot) : 0;
                         var aPct = tot > 0 ? (avl * 100.0 / tot) : 0;
+                        var tPct = tot > 0 ? (trn * 100.0 / tot) : 0;
                         var data = {
                             totalIp: tot,
                             usedIp: usd,
                             availableIp: avl,
-                            transientIp: 0,
+                            transientIp: trn,
                             usedIpPercentage: uPct.toFixed(2),
                             availableIpPercentage: aPct.toFixed(2),
-                            transientIpPercentage: "0.00"
+                            transientIpPercentage: tPct.toFixed(2)
                         };
                         if (request.callback) {
                             request.callback({
@@ -917,14 +934,15 @@ var appManager =
                             id: ip.id,
                             ipAddress: ip.ipAddress,
                             macAddress: ip.macAddress || "N/A",
-                            status: ip.status || "Available",
+                            status: (ip.status ? ip.status.toUpperCase() : "AVAILABLE"),
                             deviceType: ip.deviceType || "N/A",
+                            hostName: ip.hostName || "N/A",
                             systemName: ip.hostName || "N/A",
                             dnsStatus: "Success",
-                            ipToDns: "Success",
-                            dnsToIp: "Success",
+                            ipToDns: ip.ipToDns || "Success",
+                            dnsToIp: ip.dnsToIp || "Success",
                             authenticity: ip.authenticity || "Trusted",
-                            lastAliveTime: ip.lastScanTime || "Never",
+                            lastAliveTime: ip.lastAliveTime || ip.lastScanTime || "Never",
                             subnetId: { id: parseInt(targetId), subnetName: "" },
                             customColumns: {}
                         };
@@ -1198,6 +1216,21 @@ var appManager =
 
         if (url.indexOf('/dhcpUtilization/') === 0) {
             var stats = {
+                id: 1,
+                addressScopes: "4",
+                declines: "0",
+                offers: "18",
+                requests: "24",
+                discovers: "31",
+                releases: "2",
+                acks: "24",
+                naks: "0",
+                dhcpCredentialDetailId: {
+                    id: 1,
+                    type: "Windows Credential",
+                    credentialName: "Win-DHCP-HQ",
+                    hostAddress: "192.168.1.50"
+                },
                 totalIp: 254,
                 usedIp: 42,
                 availableIp: 212,
@@ -1486,24 +1519,25 @@ var appManager =
 
         // 29. Subnet IP Change Log
         if (url.indexOf('/subnetIpChangeLog/') === 0 || url.indexOf('/changeLog/') === 0) {
+            var ipId = url.substring(url.lastIndexOf('/') + 1);
             $.ajax({
-                url: '/api/event/top',
+                url: '/api/subnet/ip/' + ipId + '/changelog',
                 type: 'GET',
                 headers: headers,
                 dataType: 'json',
                 success: function (res) {
-                    var events = (res && res.data) ? res.data : [];
-                    var logs = events.map(function(e) {
+                    var logs = (res && res.data) ? res.data : [];
+                    var formattedLogs = logs.map(function(e) {
                         return {
                             id: e.id,
-                            ip: e.ipAddress || "-",
-                            changelog: e.eventContext || e.eventType,
+                            ip: e.ip || "-",
+                            changelog: e.changelog || "-",
                             timestamp: e.timestamp || "-",
-                            user: e.userName || "System"
+                            user: e.user || "System"
                         };
                     });
                     if (request.callback) {
-                        request.callback({ json: { success: true, data: logs }, container: request.container });
+                        request.callback({ json: { success: true, data: formattedLogs }, container: request.container });
                     }
                 },
                 error: function () {
@@ -2149,6 +2183,106 @@ var appManager =
             return;
         }
 
+        // 5. Subnet IP Range Status Update
+        if (url.indexOf('/updateSubnetIpRange/') === 0) {
+            var updatePayload = {};
+            if (request.params instanceof FormData) {
+                updatePayload.startIp = request.params.get('startIp');
+                updatePayload.endIp = request.params.get('endIp');
+                updatePayload.status = (request.params.get('status') || 'AVAILABLE').toUpperCase();
+                updatePayload.subnetId = parseInt(request.params.get('subnetId'));
+            } else if (request.params) {
+                updatePayload = request.params;
+                if (updatePayload.status) updatePayload.status = updatePayload.status.toUpperCase();
+            }
+            $.ajax({
+                url: '/api/subnet/ip/range/status',
+                type: 'POST',
+                headers: Object.assign({}, headers, { "Content-Type": "application/json" }),
+                data: JSON.stringify(updatePayload),
+                dataType: 'json',
+                success: function (res) {
+                    if (request.callback) {
+                        request.callback({ json: { success: true, message: (res && res.data && res.data.message) || "IP Range Status Updated Successfully" }, container: request.container });
+                    }
+                },
+                error: function (xhr) {
+                    var msg = "Failed to update IP range status";
+                    try { msg = JSON.parse(xhr.responseText).message || msg; } catch(e) {}
+                    if (request.callback) {
+                        request.callback({ json: { success: false, message: msg }, container: request.container });
+                    }
+                }
+            });
+            return;
+        }
+
+        // 6. Subnet IP Range Delete (Reset to Available)
+        if (url.indexOf('/deleteSubnetIpRange/') === 0) {
+            var delPayload = {};
+            if (request.params instanceof FormData) {
+                delPayload.startIp = request.params.get('startIp');
+                delPayload.endIp = request.params.get('endIp');
+                delPayload.subnetId = parseInt(request.params.get('subnetId'));
+            } else if (request.params) {
+                delPayload = request.params;
+            }
+            $.ajax({
+                url: '/api/subnet/ip/range/delete',
+                type: 'POST',
+                headers: Object.assign({}, headers, { "Content-Type": "application/json" }),
+                data: JSON.stringify(delPayload),
+                dataType: 'json',
+                success: function (res) {
+                    if (request.callback) {
+                        request.callback({ json: { success: true, message: (res && res.data && res.data.message) || "Selected IP Range Reset to Available" }, container: request.container });
+                    }
+                },
+                error: function (xhr) {
+                    var msg = "Failed to delete IP range";
+                    try { msg = JSON.parse(xhr.responseText).message || msg; } catch(e) {}
+                    if (request.callback) {
+                        request.callback({ json: { success: false, message: msg }, container: request.container });
+                    }
+                }
+            });
+            return;
+        }
+
+        // 7. Subnet IP Range Activate
+        if (url.indexOf('/activeSubnetIpRange/') === 0) {
+            var actPayload = { status: 'USED' };
+            if (request.params instanceof FormData) {
+                actPayload.startIp = request.params.get('startIp');
+                actPayload.endIp = request.params.get('endIp');
+                actPayload.subnetId = parseInt(request.params.get('subnetId'));
+            } else if (request.params) {
+                actPayload.startIp = request.params.startIp;
+                actPayload.endIp = request.params.endIp;
+                actPayload.subnetId = parseInt(request.params.subnetId);
+            }
+            $.ajax({
+                url: '/api/subnet/ip/range/status',
+                type: 'POST',
+                headers: Object.assign({}, headers, { "Content-Type": "application/json" }),
+                data: JSON.stringify(actPayload),
+                dataType: 'json',
+                success: function (res) {
+                    if (request.callback) {
+                        request.callback({ json: { success: true, message: "IP Range Activated Successfully" }, container: request.container, eventId: request.eventId });
+                    }
+                },
+                error: function (xhr) {
+                    var msg = "Failed to activate IP range";
+                    try { msg = JSON.parse(xhr.responseText).message || msg; } catch(e) {}
+                    if (request.callback) {
+                        request.callback({ json: { success: false, message: msg }, container: request.container, eventId: request.eventId });
+                    }
+                }
+            });
+            return;
+        }
+
         // Default standard AJAX fallback
         $.ajax({
             url: request.url,
@@ -2598,13 +2732,33 @@ var appManager =
 
         // 2. Subnet IP Delete
         if (url.indexOf('/subnetIp/') === 0) {
-            if (request.callback) {
-                request.callback({
-                    json: { success: true, message: "IP Deleted Successfully" },
-                    container: request.container,
-                    gridId: request.gridId
-                });
-            }
+            var ipIds = url.substring('/subnetIp/'.length);
+            $.ajax({
+                url: '/api/subnet/ips?ids=' + ipIds,
+                type: 'DELETE',
+                headers: headers,
+                dataType: 'json',
+                success: function (res) {
+                    if (request.callback) {
+                        request.callback({
+                            json: { success: true, message: (res && res.data && res.data.message) || "IP(s) Reset to Available Successfully" },
+                            container: request.container,
+                            gridId: request.gridId
+                        });
+                    }
+                },
+                error: function (xhr) {
+                    var msg = "Failed to delete IP(s)";
+                    try { msg = JSON.parse(xhr.responseText).message || msg; } catch(e) {}
+                    if (request.callback) {
+                        request.callback({
+                            json: { success: false, message: msg },
+                            container: request.container,
+                            gridId: request.gridId
+                        });
+                    }
+                }
+            });
             return;
         }
 

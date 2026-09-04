@@ -205,8 +205,34 @@ var subnetSummary =
 
                 var scopeAddress = context.scopeAddress;
 
-                var gridId = $('#'+subnetSummary.SubnetIPAddresses);
-                var lastUpdatedColumns = null; // Track last updated column structure
+                var gridId = $('#' + subnetSummary.SubnetIPAddresses);
+                var lastUpdatedColumns = null;
+
+                var currentRole = (typeof appManager !== "undefined" && appManager.getCurrentUserRole) ? appManager.getCurrentUserRole() : 'ROLE_ADMIN';
+                var perms = (typeof appManager !== "undefined" && appManager.getCurrentUserPermissions) ? appManager.getCurrentUserPermissions() : [];
+                var canWrite = currentRole === 'ROLE_ADMIN' || (perms && (perms.indexOf('ROLE_ADMIN') !== -1 || perms.indexOf('PERM_DASHBOARD_WRITE') !== -1 || perms.indexOf('PERM_SUBNET_EDIT') !== -1));
+
+                var gridFields = [];
+                if (canWrite) {
+                    gridFields.push({
+                        headerTemplate: "<input type='checkbox' class='deleteMultipleIP' data-value='subnetIPAddresses' name='checkboxFilter' onclick='subnetSummary.selectAllCheckBox(this)' > " +
+                            "<label class='k-checkbox-label label-2'>&nbsp;</label>",
+                        width: "4%",
+                        template: "<input type='checkbox' class='deleteMultipleIP' id='#= id #' data-value='subnetIPAddresses' name='checkboxFilter' onclick='subnetSummary.showHideBtnOnCheckboxClick()'>" +
+                            "<label class='k-checkbox-label label-2'>&nbsp;</label>",
+                        filterable: false
+                    });
+                }
+                gridFields.push(
+                    { field: "ipAddress", width: "10%", template: "<a data-uid='#: subnetId.id #' data-id='#: id#' data-link='ipAddress' data-value='#: ipAddress #' data-name='#:subnetId.subnetName#' title='#:ipAddress#'>#: ipAddress #</a>", title: "IP Address" },
+                    { field: "status", title: "Status", width: "8%", attributes: { style: "text-align: center; white-space: normal;" } },
+                    { field: "macAddress", title: "MAC Address", width: "10%", attributes: { style: "text-align: center; white-space: normal;" } },
+                    { field: "deviceType", title: "Device Type", width: "10%", attributes: { style: "text-align: center; white-space: normal;" } },
+                    { field: "ipToDns", title: "IP To DNS", width: "10%", attributes: { style: "text-align: center; white-space: normal;" } },
+                    { field: "dnsToIp", title: "DNS To IP", width: "10%", attributes: { style: "text-align: center; white-space: normal;" } },
+                    { field: "authenticity", title: "Authenticity", width: "10%", attributes: { style: "text-align: center; white-space: normal;" } },
+                    { field: "lastAliveTime", title: "Last Alive Time", width: "13%", attributes: { style: "text-align: center; white-space: normal;" } }
+                );
 
                 var callbackContexts = {
                     Read: function (options) {
@@ -309,24 +335,7 @@ var subnetSummary =
                             }
                         }
                     },
-                    Fields: [
-                        {
-                            headerTemplate: "<input type='checkbox' class='deleteMultipleIP' data-value='subnetIPAddresses' name='checkboxFilter' onclick='subnetSummary.selectAllCheckBox(this)' > " +
-                                "<label class='k-checkbox-label label-2'>&nbsp;</label>",
-                            width: "4%",
-                            template: "<input type='checkbox' class='deleteMultipleIP' id='#= id #' data-value='subnetIPAddresses' name='checkboxFilter' onclick='subnetSummary.showHideBtnOnCheckboxClick()'>" +
-                                "<label class='k-checkbox-label label-2'>&nbsp;</label>",
-                            filterable: false
-                        },
-                        { field: "ipAddress", width: "10%", template: "<a data-uid='#: subnetId.id #' data-id='#: id#' data-link='ipAddress' data-value='#: ipAddress #' data-name='#:subnetId.subnetName#' title='#:ipAddress#'>#: ipAddress #</a>", title: "IP Address" },
-                        { field: "status", title: "Status", width: "8%", attributes: { style: "text-align: center; white-space: normal;" } },
-                        { field: "macAddress", title: "MAC Address", width: "10%", attributes: { style: "text-align: center; white-space: normal;" } },
-                        { field: "deviceType", title: "Device Type", width: "10%", attributes: { style: "text-align: center; white-space: normal;" } },
-                        { field: "ipToDns", title: "IP To DNS", width: "10%", attributes: { style: "text-align: center; white-space: normal;" } },
-                        { field: "dnsToIp", title: "DNS To IP", width: "10%", attributes: { style: "text-align: center; white-space: normal;" } },
-                        { field: "authenticity", title: "Authenticity", width: "10%", attributes: { style: "text-align: center; white-space: normal;" } },
-                        { field: "lastAliveTime", title: "Last Alive Time", width: "13%", attributes: { style: "text-align: center; white-space: normal;" } }
-                    ]
+                    Fields: gridFields
                 };
 
                 try {
@@ -345,15 +354,13 @@ var subnetSummary =
 
                 flux.bindKendoButtonClickEvent({element: 'exportCsvIP',eventId:id, exportType:2}, subnetSummary.onSubnetSummaryPageExport);
 
-                var currentRole = (typeof appManager !== "undefined" && appManager.getCurrentUserRole) ? appManager.getCurrentUserRole() : 'ROLE_ADMIN';
-                var perms = (typeof appManager !== "undefined" && appManager.getCurrentUserPermissions) ? appManager.getCurrentUserPermissions() : [];
-                var canWrite = currentRole === 'ROLE_ADMIN' || (perms && (perms.indexOf('ROLE_ADMIN') !== -1 || perms.indexOf('PERM_DASHBOARD_WRITE') !== -1 || perms.indexOf('PERM_SUBNET_EDIT') !== -1));
-
                 if (!canWrite) {
                     $('#scanIP').hide();
                     $('#addMultipleIP').hide();
                     $('#deleteMultipleIP').hide();
                     $('#importIP').hide();
+                    $('#selectIPRange').hide();
+                    $('a[data-link="selectIPRange"]').hide();
                 } else {
                     flux.bindKendoButtonClickEvent({element: 'addMultipleIP',eventId:id},subnetSummary.onMultipleIPAddButtonClick);
                     flux.bindKendoButtonClickEvent({element: 'selectIPRange',eventId:id},subnetSummary.onSelectIPRangeButtonClick);
@@ -451,9 +458,9 @@ var subnetSummary =
                 {
                     if(appManager.validatePermission() == true)
                     {
-                        var deleteIPCoseQuences = "Warning : Selected IP Addresses will be removed from the subnet !";
+                        var deleteIPCoseQuences = "Selected IP Addresses will be reset to Available status.";
 
-                        flux.bindKendoModalEvent({container: 'deleteModal',uniqueId:'deleteSubnetIP',coSequences:deleteIPCoseQuences,title:'Do you really want to delete the selected IP Addresses?', params:checkedId, closeCallback: flux.closeKendoDeleteModal,callback: subnetSummary.deleteConfirmationPrompt});
+                        flux.bindKendoModalEvent({container: 'deleteModal',uniqueId:'deleteSubnetIP',coSequences:deleteIPCoseQuences,title:'Do you really want to reset the selected IP Addresses to Available?', params:checkedId, closeCallback: flux.closeKendoDeleteModal,callback: subnetSummary.deleteConfirmationPrompt});
                     }
                 }
                 else
@@ -778,7 +785,7 @@ var subnetSummary =
 
                     $('#addModal_wnd_title').html('Select IP Range');
 
-                    modal.data("kendoWindow").content('<form id="selectIPRangeForm"><div class="fixed-height-body-popup-panel  margin-t-20"><div class="row"><div class="col-xs-12 col-md-12 col-lg-6"> <label for="startIp">Start IP</label> <input id="startIp" type="text" name="startIp" class="k-textbox" required validationMessage="Start IP is required" maxlength="40" /></div><div class="col-xs-12 col-md-12 col-lg-6"> <label for="endIp">End IP</label> <input id="endIp" type="text" name="endIp" class="k-textbox" required validationMessage="End IP is required" maxlength="40" /></div></div></div><div class="footer-box-grid-box margin-t-10 align-right"><div class="bottom-form-panel"> <button class="k-button k-button-icontext k-grid-cancel float-l" id="ipRangeCancelButton">Cancel</button> <button class="k-button k-button-icontext k-primary k-grid-update" id="multipleSubnetEdit">Select + Edit<div id="selectIPModal"></div> </button> <button class="k-button k-button-icontext k-primary k-grid-update" id="multipleSubnetDelete">Select + Remove</button></div></div></form>');
+                    modal.data("kendoWindow").content('<form id="selectIPRangeForm"><div class="fixed-height-body-popup-panel  margin-t-20"><div class="row"><div class="col-xs-12 col-md-12 col-lg-6"> <label for="startIp">Start IP</label> <input id="startIp" type="text" name="startIp" class="k-textbox" required validationMessage="Start IP is required" maxlength="40" /></div><div class="col-xs-12 col-md-12 col-lg-6"> <label for="endIp">End IP</label> <input id="endIp" type="text" name="endIp" class="k-textbox" required validationMessage="End IP is required" maxlength="40" /></div></div></div><div class="footer-box-grid-box margin-t-10 align-right"><div class="bottom-form-panel"> <button class="k-button k-button-icontext k-grid-cancel float-l" id="ipRangeCancelButton">Cancel</button> <button class="k-button k-button-icontext k-primary k-grid-update" id="multipleSubnetEdit">Select + Edit<div id="selectIPModal"></div> </button> <button class="k-button k-button-icontext k-primary k-grid-update" id="multipleSubnetDelete">Select + Reset</button></div></div></form>');
 
                     flux.bindElementEvent({event:'keyup',element:'addModal',selector:'#startIp'},flux.hostAddressValidation);
 
@@ -809,6 +816,29 @@ var subnetSummary =
 
                 if(validator.validate())
                 {
+                    var sIp = ($("#startIp").val() || "").trim();
+                    var eIp = ($("#endIp").val() || "").trim();
+                    var ipRegex = /^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+
+                    if (!ipRegex.test(sIp)) {
+                        notification.showNotification({ notificationTitle: "Please enter a valid Start IP address", notificationType: "error" });
+                        return;
+                    }
+                    if (!ipRegex.test(eIp)) {
+                        notification.showNotification({ notificationTitle: "Please enter a valid End IP address", notificationType: "error" });
+                        return;
+                    }
+
+                    var sParts = sIp.split('.');
+                    var eParts = eIp.split('.');
+                    var sLong = (((+sParts[0]) * 16777216) + ((+sParts[1]) * 65536) + ((+sParts[2]) * 256) + (+sParts[3]));
+                    var eLong = (((+eParts[0]) * 16777216) + ((+eParts[1]) * 65536) + ((+eParts[2]) * 256) + (+eParts[3]));
+
+                    if (sLong > eLong) {
+                        notification.showNotification({ notificationTitle: "Start IP must be less than or equal to End IP", notificationType: "error" });
+                        return;
+                    }
+
                     var modal = $('#innerModal');
 
                     modal.width('500px');
@@ -817,13 +847,13 @@ var subnetSummary =
 
                     $('#innerModal_wnd_title').html('Edit IP Status');
 
-                    modal.data("kendoWindow").content('<form id="selectIPStatusForm"><div class="fixed-height-body-popup-panel margin-t-20"><div class="row"><div class="col-xs-12 col-md-12 col-lg-6"> <label for="startIp">Start IP Range</label> <input id="startIp" type="text" name="startIp" value="'+$("#startIp").val()+'" readonly class="k-textbox" required validationMessage="Start IP Range required"/></div><div class="col-xs-12 col-md-12 col-lg-6"> <label for="endIp">End IP Range</label> <input id="endIp" value="'+$("#endIp").val()+'" type="text" name="endIp" readonly class="k-textbox" required validationMessage="End IP Range required"/></div></div><div class="row"><div class="col-xs-12 col-md-12 col-lg-6 select-drop-menu"> <label for="status">Status</label> <select id="status" name="status" class="k-dropdown"/></div></div></div><div class="footer-box-grid-box margin-t-10 align-right"><div class="bottom-form-panel"> <button class="k-button k-button-icontext k-grid-cancel float-l" id="selectStatusCancelButton">Cancel</button> <button class="k-button k-button-icontext k-primary k-grid-update float-r" id="selectStatusAddButton">Add</button></div></div></form>');
+                    modal.data("kendoWindow").content('<form id="selectIPStatusForm"><div class="fixed-height-body-popup-panel margin-t-20"><div class="row"><div class="col-xs-12 col-md-12 col-lg-6"> <label for="startIp">Start IP Range</label> <input id="startIp" type="text" name="startIp" value="'+sIp+'" readonly class="k-textbox" required validationMessage="Start IP Range required"/></div><div class="col-xs-12 col-md-12 col-lg-6"> <label for="endIp">End IP Range</label> <input id="endIp" value="'+eIp+'" type="text" name="endIp" readonly class="k-textbox" required validationMessage="End IP Range required"/></div></div><div class="row"><div class="col-xs-12 col-md-12 col-lg-6 select-drop-menu"> <label for="status">Status</label> <select id="status" name="status" class="k-dropdown"/></div></div></div><div class="footer-box-grid-box margin-t-10 align-right"><div class="bottom-form-panel"> <button class="k-button k-button-icontext k-grid-cancel float-l" id="selectStatusCancelButton">Cancel</button> <button class="k-button k-button-icontext k-primary k-grid-update float-r" id="selectStatusAddButton">Add</button></div></div></form>');
 
                     var dropDownId = $("#status");
 
-                    var data = [{text: "Used", value: "Used" }, {text: "Available", value: "Available" },{text: "Transient", value: "Transient" },{text: "Reserved", value: "Reserved" }];
+                    var data = [{text: "USED", value: "USED" }, {text: "AVAILABLE", value: "AVAILABLE" },{text: "TRANSIENT", value: "TRANSIENT" },{text: "RESERVED", value: "RESERVED" }];
 
-                    flux.getKendoDropDownList({dropDownId:dropDownId,dataTextField: "value",dataValueField: "text",data:data});
+                    flux.getKendoDropDownList({dropDownId:dropDownId,dataTextField: "text",dataValueField: "value",data:data});
 
                     flux.bindKendoButtonClickEvent({element: 'selectStatusAddButton', kendoModal:modal , gridId:id}, subnetSummary.onSelectIPStatusClick);
 
@@ -850,7 +880,7 @@ var subnetSummary =
 
                 formData.append('endIp', $("#endIp").val());
 
-                formData.append('status', $("#status").find(":selected").val());
+                formData.append('status', ($("#status").find(":selected").val() || "AVAILABLE").toUpperCase());
 
                 formData.append('subnetId',id);
 
@@ -900,17 +930,40 @@ var subnetSummary =
 
                 if(validator.validate())
                 {
+                    var sIp = ($("#startIp").val() || "").trim();
+                    var eIp = ($("#endIp").val() || "").trim();
+                    var ipRegex = /^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+
+                    if (!ipRegex.test(sIp)) {
+                        notification.showNotification({ notificationTitle: "Please enter a valid Start IP address", notificationType: "error" });
+                        return;
+                    }
+                    if (!ipRegex.test(eIp)) {
+                        notification.showNotification({ notificationTitle: "Please enter a valid End IP address", notificationType: "error" });
+                        return;
+                    }
+
+                    var sParts = sIp.split('.');
+                    var eParts = eIp.split('.');
+                    var sLong = (((+sParts[0]) * 16777216) + ((+sParts[1]) * 65536) + ((+sParts[2]) * 256) + (+sParts[3]));
+                    var eLong = (((+eParts[0]) * 16777216) + ((+eParts[1]) * 65536) + ((+eParts[2]) * 256) + (+eParts[3]));
+
+                    if (sLong > eLong) {
+                        notification.showNotification({ notificationTitle: "Start IP must be less than or equal to End IP", notificationType: "error" });
+                        return;
+                    }
+
                     var formData = new FormData();
 
-                    formData.append('startIp', $("#startIp").val());
+                    formData.append('startIp', sIp);
 
-                    formData.append('endIp', $("#endIp").val());
+                    formData.append('endIp', eIp);
 
                     formData.append('subnetId',id);
 
                     loaderUtil.showModalLoader();
 
-                    appManager.executeFileRequest({url:'/deleteSubnetIpRange/',type: 'POST',container:kendoModal,callback:subnetSummary.afterSelectedIPDeleted,params:formData})
+                    appManager.executeFileRequest({url:'/deleteSubnetIpRange/',type: 'POST',container:kendoModal,callback:subnetSummary.afterSelectedIPDeleted,params:formData});
                 }
             }
         },

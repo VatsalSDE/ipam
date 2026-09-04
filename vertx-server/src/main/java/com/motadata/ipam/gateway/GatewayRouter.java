@@ -2,19 +2,24 @@ package com.motadata.ipam.gateway;
 
 
 import com.motadata.ipam.scanner.GoPluginBridge;
+
 import com.motadata.ipam.security.RbacAuthHandler;
 
 import io.vertx.core.Vertx;
+
 import io.vertx.ext.web.Router;
-import io.vertx.mysqlclient.MySQLPool;
+
+import io.vertx.sqlclient.Pool;
 
 /**
  * Clean router registering Gateway and Discovered Subnet endpoints with RBAC protection.
  */
 public class GatewayRouter {
 
-    public static void register(Router router, MySQLPool mysqlPool, GoPluginBridge goPluginBridge, Vertx vertx, RbacAuthHandler rbacAuthHandler) {
+    public static void register(Router router, Pool mysqlPool, GoPluginBridge goPluginBridge, Vertx vertx, RbacAuthHandler rbacAuthHandler) {
+
         GatewayService gatewayService = new GatewayService(mysqlPool, vertx);
+
         GatewayHandler handler = new GatewayHandler(gatewayService, goPluginBridge);
 
         // Gateways CRUD & Scan
@@ -50,5 +55,7 @@ public class GatewayRouter {
         router.delete("/api/discovered-subnet/:id")
                 .handler(rbacAuthHandler.requirePermission("PERM_DISCOVERY_WRITE"))
                 .handler(handler::deleteDiscoveredSubnet);
+
     }
+
 }

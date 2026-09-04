@@ -6,7 +6,7 @@ import io.vertx.core.Promise;
 
 import io.vertx.core.json.JsonObject;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 import org.slf4j.Logger;
 
@@ -25,7 +25,7 @@ public class ScanWorkerVerticle extends AbstractVerticle {
 
     private static final Logger logger = LoggerFactory.getLogger(ScanWorkerVerticle.class);
 
-    private final MySQLPool mysqlPool;
+    private final Pool mysqlPool;
 
     private final GoPluginBridge goPluginBridge;
 
@@ -33,7 +33,7 @@ public class ScanWorkerVerticle extends AbstractVerticle {
 
     private SubnetScanScheduler subnetScanScheduler;
 
-    public ScanWorkerVerticle(MySQLPool mysqlPool, GoPluginBridge goPluginBridge) {
+    public ScanWorkerVerticle(Pool mysqlPool, GoPluginBridge goPluginBridge) {
 
         this.mysqlPool = mysqlPool;
 

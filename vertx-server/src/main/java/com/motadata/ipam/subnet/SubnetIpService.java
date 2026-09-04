@@ -1,7 +1,7 @@
 package com.motadata.ipam.subnet;
 
-
 import com.motadata.ipam.core.database.DbQueries;
+
 import com.motadata.ipam.core.database.DbUtil;
 
 import io.vertx.core.Future;
@@ -10,7 +10,7 @@ import io.vertx.core.json.JsonArray;
 
 import io.vertx.core.json.JsonObject;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 import io.vertx.sqlclient.Row;
 
@@ -32,9 +32,9 @@ public class SubnetIpService {
 
     private static final Logger logger = LoggerFactory.getLogger(SubnetIpService.class);
 
-    private final MySQLPool mysqlPool;
+    private final Pool mysqlPool;
 
-    public SubnetIpService(MySQLPool mysqlPool) {
+    public SubnetIpService(Pool mysqlPool) {
 
         this.mysqlPool = mysqlPool;
 
@@ -169,13 +169,23 @@ public class SubnetIpService {
 
         ipObj.put("macAddress", DbUtil.getString(row, "mac_address"));
 
-        ipObj.put("status", DbUtil.getString(row, "status"));
+        String rawStatus = DbUtil.getString(row, "status");
+
+        ipObj.put("status", rawStatus != null && !rawStatus.isBlank() ? rawStatus.trim().toUpperCase() : "AVAILABLE");
 
         ipObj.put("deviceType", DbUtil.getString(row, "device_type"));
 
         ipObj.put("hostName", DbUtil.getString(row, "host_name"));
 
         ipObj.put("authenticity", DbUtil.getString(row, "authenticity"));
+
+        ipObj.put("ipToDns", DbUtil.getString(row, "ip_to_dns"));
+
+        ipObj.put("dnsToIp", DbUtil.getString(row, "dns_to_ip"));
+
+        String lastAlive = DbUtil.getString(row, "last_alive_time");
+
+        ipObj.put("lastAliveTime", lastAlive != null && !lastAlive.isBlank() ? lastAlive : "Never");
 
         return ipObj;
 

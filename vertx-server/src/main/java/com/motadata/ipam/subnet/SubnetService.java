@@ -1,13 +1,12 @@
 package com.motadata.ipam.subnet;
 
-
 import com.motadata.ipam.core.database.DbQueries;
+
 import com.motadata.ipam.core.database.DbUtil;
+
 import com.motadata.ipam.event.EventService;
 
 import io.vertx.core.Future;
-
-import io.vertx.core.Promise;
 
 import io.vertx.core.Vertx;
 
@@ -15,7 +14,9 @@ import io.vertx.core.json.JsonArray;
 
 import io.vertx.core.json.JsonObject;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.mysqlclient.MySQLClient;
+
+import io.vertx.sqlclient.Pool;
 
 import io.vertx.sqlclient.Row;
 
@@ -42,19 +43,19 @@ public class SubnetService {
 
     private static final int DEFAULT_CHUNK_SIZE = 512;
 
-    private final MySQLPool mysqlPool;
+    private final Pool mysqlPool;
 
     private final Vertx vertx;
 
     private final SubnetIpService subnetIpService;
 
-    public SubnetService(MySQLPool mysqlPool) {
+    public SubnetService(Pool mysqlPool) {
 
         this(mysqlPool, null);
 
     }
 
-    public SubnetService(MySQLPool mysqlPool, Vertx vertx) {
+    public SubnetService(Pool mysqlPool, Vertx vertx) {
 
         this.mysqlPool = mysqlPool;
 
@@ -314,9 +315,9 @@ public class SubnetService {
                     return mysqlPool.preparedQuery(insertSubnetSql).execute(tuple);
 
                 })
-                .compose(insertResult -> {
+                .compose((RowSet<Row> insertResult) -> {
 
-                    Long newSubnetId = insertResult.property(io.vertx.mysqlclient.MySQLClient.LAST_INSERTED_ID);
+                    Long newSubnetId = insertResult.property(MySQLClient.LAST_INSERTED_ID);
 
                     if (newSubnetId == null || newSubnetId <= 0) {
 
@@ -507,7 +508,6 @@ public class SubnetService {
             return vertx.eventBus().<JsonObject>request(SubnetWorkerVerticle.ADDRESS_POPULATE_IPS, msg)
                     .mapEmpty();
 
-
         }
 
         return streamInsertIpChunks(subnetId, firstUsable, lastUsable, DEFAULT_CHUNK_SIZE);
@@ -573,6 +573,8 @@ public class SubnetService {
 
         Long availableIp = DbUtil.getLongOrDefault(row, "availableIp", 0L);
 
+        Long transientIp = DbUtil.getLongOrDefault(row, "transientIp", 0L);
+
         double usedPercent = totalIp > 0 ? ((double) usedIp / totalIp) * 100.0 : 0.0;
 
         obj.put("id", id);
@@ -595,11 +597,17 @@ public class SubnetService {
 
         obj.put("availableIp", availableIp);
 
+        obj.put("transientIp", transientIp);
+
         obj.put("usedIpPercentage", Math.round(usedPercent * 100.0) / 100.0);
 
         obj.put("scheduleStatus", DbUtil.getBoolean(row, "scheduleStatus"));
 
         obj.put("status", DbUtil.getString(row, "status"));
+
+        String lastScan = DbUtil.getString(row, "lastScanTime");
+
+        obj.put("lastScanTime", lastScan != null && !lastScan.isBlank() ? lastScan : "Never");
 
         return obj;
 
@@ -632,30 +640,38 @@ public class SubnetService {
 
                     obj.put("id", DbUtil.getLong(row, "id"));
 
-                    obj.put("ipAddress", DbUtil.getString(row, "ipAddress"));
+                    obj.put("ipAddress", DbUtil.getString(row, "ip_address"));
 
                     String mac = DbUtil.getString(row, "macAddress");
+
                     obj.put("macAddress", mac.isBlank() ? "N/A" : mac);
 
                     String st = DbUtil.getString(row, "status");
+
                     obj.put("status", st.isBlank() ? "AVAILABLE" : st);
 
                     String dt = DbUtil.getString(row, "deviceType");
+
                     obj.put("deviceType", dt.isBlank() ? "N/A" : dt);
 
                     String hn = DbUtil.getString(row, "hostName");
+
                     obj.put("hostName", hn.isBlank() ? "N/A" : hn);
 
                     String auth = DbUtil.getString(row, "authenticity");
+
                     obj.put("authenticity", auth.isBlank() ? "N/A" : auth);
 
                     String fwd = DbUtil.getString(row, "ipToDns");
+
                     obj.put("ipToDns", fwd.isBlank() ? "N/A" : fwd);
 
                     String rev = DbUtil.getString(row, "dnsToIp");
+
                     obj.put("dnsToIp", rev.isBlank() ? "N/A" : rev);
 
                     String alive = DbUtil.getString(row, "lastAliveTime");
+
                     obj.put("lastAliveTime", alive.isBlank() ? "N/A" : alive);
 
                     return obj;
@@ -664,4 +680,254 @@ public class SubnetService {
 
     }
 
+    /**
+     * Retrieves audit changelog history specifically for an individual IP record ID.
+     */
+    public Future<JsonArray> getIpChangeLogs(Long ipId, int limit) {
+
+        if (ipId == null || ipId <= 0) {
+
+            return Future.failedFuture("Invalid IP ID");
+
+        }
+
+        int queryLimit = (limit > 0 && limit <= 100) ? limit : 50;
+
+        return mysqlPool.preparedQuery(DbQueries.SELECT_IP_CHANGE_LOG_BY_IP_ID)
+                .execute(Tuple.of(ipId, queryLimit))
+                .map(rows -> {
+
+                    JsonArray list = new JsonArray();
+
+                    for (Row row : rows) {
+
+                        JsonObject obj = new JsonObject();
+
+                        obj.put("id", DbUtil.getLong(row, "id"));
+
+                        obj.put("ipAddressId", DbUtil.getLong(row, "ipAddressId"));
+
+                        obj.put("subnetId", DbUtil.getLong(row, "subnetId"));
+
+                        obj.put("timestamp", DbUtil.getString(row, "timestamp"));
+
+                        obj.put("user", DbUtil.getString(row, "user"));
+
+                        obj.put("ip", DbUtil.getString(row, "ip"));
+
+                        obj.put("changelog", DbUtil.getString(row, "changelog"));
+
+                        list.add(obj);
+
+                    }
+
+                    return list;
+
+                });
+
+    }
+
+    /**
+     * Updates the status of an IP range within a subnet (Available, Used, Transient, Reserved)
+
+     * and records audit changelog entries in MariaDB.
+     */
+    public Future<JsonObject> updateIpRangeStatus(Long subnetId, String startIp, String endIp, String status, String username) {
+
+        if (subnetId == null || subnetId <= 0) {
+
+            return Future.failedFuture("Invalid Subnet ID");
+
+        }
+
+        if (startIp == null || startIp.isBlank() || endIp == null || endIp.isBlank() || status == null || status.isBlank()) {
+
+            return Future.failedFuture("Subnet ID, start IP, end IP, and status are required");
+
+        }
+
+        String sIp = startIp.trim();
+
+        String eIp = endIp.trim();
+
+        if (!IPv4Util.isValidIpv4(sIp)) {
+
+            return Future.failedFuture("Invalid start IP address format: " + sIp);
+
+        }
+
+        if (!IPv4Util.isValidIpv4(eIp)) {
+
+            return Future.failedFuture("Invalid end IP address format: " + eIp);
+
+        }
+
+        long sLong = IPv4Util.ipToLong(sIp);
+
+        long eLong = IPv4Util.ipToLong(eIp);
+
+        if (sLong > eLong) {
+
+            return Future.failedFuture("Start IP (" + sIp + ") must be less than or equal to End IP (" + eIp + ")");
+
+        }
+
+        String normStatus = status.trim().toUpperCase();
+
+        String user = (username != null && !username.isBlank()) ? username : "System";
+
+        String logMsg = "Status updated to " + normStatus + " by " + user;
+
+        return mysqlPool.preparedQuery(DbQueries.GET_SUBNET_BY_ID)
+                .execute(Tuple.of(subnetId))
+                .compose(subRows -> {
+
+                    if (!subRows.iterator().hasNext()) {
+
+                        return Future.failedFuture("Subnet not found with ID: " + subnetId);
+
+                    }
+
+                    Row subRow = subRows.iterator().next();
+
+                    String subAddr = DbUtil.getString(subRow, "subnetAddress");
+
+                    int cidr = DbUtil.getIntOrDefault(subRow, "subnetCidr", 24);
+
+                    long netLong = IPv4Util.getNetworkAddress(IPv4Util.ipToLong(subAddr), cidr);
+
+                    long bcastLong = IPv4Util.getBroadcastAddress(netLong, cidr);
+
+                    long firstUsable = netLong + 1;
+
+                    long lastUsable = bcastLong - 1;
+
+                    if (sLong < firstUsable || eLong > lastUsable) {
+
+                        return Future.failedFuture("IP range (" + sIp + " - " + eIp + ") is outside the valid host range (" +
+                                IPv4Util.longToIp(firstUsable) + " - " + IPv4Util.longToIp(lastUsable) + ") for Subnet " + subAddr + "/" + cidr);
+
+                    }
+
+                    return mysqlPool.preparedQuery(DbQueries.UPDATE_SUBNET_IP_RANGE_STATUS)
+                            .execute(Tuple.of(normStatus, subnetId, sIp, eIp))
+                            .compose(updateResult -> {
+
+                                int affected = updateResult.rowCount();
+
+                                if (affected == 0) {
+
+                                    return Future.failedFuture("No matching IP addresses found in the specified range (" + sIp + " - " + eIp + ") for Subnet " + subAddr);
+
+                                }
+
+                                return mysqlPool.preparedQuery(DbQueries.INSERT_IP_RANGE_CHANGE_LOG)
+                                        .execute(Tuple.of(user, logMsg, subnetId, sIp, eIp))
+                                        .compose(r -> mysqlPool.preparedQuery(DbQueries.SYNC_SUBNET_IP_COUNTS_BY_ID)
+                                                .execute(Tuple.of(subnetId, subnetId)))
+                                        .map(r -> {
+
+                                            if (vertx != null && vertx.eventBus() != null) {
+
+                                                vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
+                                                        .put("eventType", "IP_RANGE_UPDATED")
+                                                        .put("eventContext", "Updated " + affected + " IP(s) in range " + sIp + " - " + eIp + " to " + normStatus + " in Subnet " + subAddr)
+                                                        .put("severity", 1));
+
+                                            }
+
+                                            return new JsonObject().put("success", true).put("message", "Successfully updated " + affected + " IP address(es) to " + normStatus);
+
+                                        });
+
+                            });
+
+                });
+
+    }
+
+    /**
+     * Resets an IP range to AVAILABLE within a subnet.
+     */
+    public Future<JsonObject> deleteIpRange(Long subnetId, String startIp, String endIp, String username) {
+
+        return updateIpRangeStatus(subnetId, startIp, endIp, "AVAILABLE", username)
+                .map(r -> new JsonObject().put("success", true).put("message", "Selected IP range removed and reset to Available"));
+
+    }
+
+    /**
+     * Resets multiple selected IP IDs to AVAILABLE.
+     */
+    public Future<JsonObject> deleteMultipleIps(List<Long> ipIds, String username) {
+
+        if (ipIds == null || ipIds.isEmpty()) {
+
+            return Future.failedFuture("No IP IDs provided for deletion");
+
+        }
+
+        String user = (username != null && !username.isBlank()) ? username : "System";
+
+        StringBuilder placeholders = new StringBuilder();
+
+        List<Object> params = new ArrayList<>();
+
+        params.add("AVAILABLE");
+
+        for (int i = 0; i < ipIds.size(); i++) {
+
+            if (i > 0) {
+
+                placeholders.append(",");
+
+            }
+
+            placeholders.append("?");
+
+            params.add(ipIds.get(i));
+
+        }
+
+        String updateSql = "UPDATE subnet_ip_details SET previous_status = status, status = ? WHERE id IN (" + placeholders + ")";
+
+        return mysqlPool.preparedQuery(updateSql).execute(Tuple.from(params))
+                .compose(r -> {
+
+                    String logMsg = "IP reset to AVAILABLE via bulk delete by " + user;
+
+                    String logSql = "INSERT INTO ip_change_log (user, ip_address_id, subnet_id, ip, timestamp, changelog) " +
+                            "SELECT ?, id, subnet_id_id, ip_address, NOW(), ? " +
+                            "FROM subnet_ip_details WHERE id IN (" + placeholders + ")";
+
+                    List<Object> logParams = new ArrayList<>();
+
+                    logParams.add(user);
+
+                    logParams.add(logMsg);
+
+                    logParams.addAll(ipIds);
+
+                    return mysqlPool.preparedQuery(logSql).execute(Tuple.from(logParams));
+
+                })
+                .compose(r -> mysqlPool.preparedQuery(DbQueries.SYNC_ALL_SUBNET_IP_COUNTS).execute())
+                .map(r -> {
+
+                    if (vertx != null && vertx.eventBus() != null) {
+
+                        vertx.eventBus().send(EventService.ADDRESS_EVENT_LOG, new JsonObject()
+                                .put("eventType", "IPS_DELETED")
+                                .put("eventContext", "Deleted/reset " + ipIds.size() + " IP addresses to AVAILABLE by " + user)
+                                .put("severity", 2));
+
+                    }
+
+                    return new JsonObject().put("success", true).put("message", "Selected IP addresses deleted successfully");
+
+                });
+
+    }
+
 }
+

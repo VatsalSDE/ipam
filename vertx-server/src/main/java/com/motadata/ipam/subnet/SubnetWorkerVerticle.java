@@ -11,7 +11,7 @@ import io.vertx.core.Promise;
 
 import io.vertx.core.json.JsonObject;
 
-import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.Pool;
 
 import io.vertx.sqlclient.Tuple;
 
@@ -38,9 +38,9 @@ public class SubnetWorkerVerticle extends AbstractVerticle {
 
     private static final int DEFAULT_CHUNK_SIZE = 512;
 
-    private final MySQLPool mysqlPool;
+    private final Pool mysqlPool;
 
-    public SubnetWorkerVerticle(MySQLPool mysqlPool) {
+    public SubnetWorkerVerticle(Pool mysqlPool) {
 
         this.mysqlPool = mysqlPool;
 
